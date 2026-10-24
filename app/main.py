@@ -50,9 +50,12 @@ from app.sports.tennis.router import router as tennis_router
 from app.sports.tennis.client import PublicTennisClient
 from app.sports.tennis.service import TennisPredictionService
 
+logger = logging.getLogger(__name__)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    logger.info("✅ api.starting name=%s version=%s", app.title, app.version)
     settings = get_settings()
     api_football_client = ApiFootballClient(
         api_key=settings.api_football_key,
@@ -174,7 +177,6 @@ async def _run_baseball_settlement_loop(
     service: BaseballSettlementService,
     interval_seconds: int,
 ) -> None:
-    logger = logging.getLogger(__name__)
     while True:
         await asyncio.sleep(max(60, interval_seconds))
         try:
