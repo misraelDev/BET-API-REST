@@ -4,7 +4,7 @@ info:
   description: Contrato OpenAPI de sistema. Incluye solo las rutas `/health`, `/api/v1/sports`, `/api/v1/records`
     y los esquemas que esas rutas referencian. El resto de deportes está en archivos separados dentro
     de `openapi/`.
-  version: 1.2.0
+  version: 1.3.0
   contact:
     name: BET Analytics
   license:

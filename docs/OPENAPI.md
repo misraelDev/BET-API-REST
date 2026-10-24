@@ -20,7 +20,7 @@ lote, listado, detalle y evaluaciones posteriores.
 
 ## Contenido de cada archivo
 
-- Versión OpenAPI 3.1.0 y versión de API 1.2.0.
+- Versión OpenAPI 3.1.0 y versión de API 1.3.0.
 - Servidores `http://127.0.0.1:8000` y `http://localhost:8000`; si defines
   `PUBLIC_BASE_URL`, se añade como servidor adicional.
 - Solo los `tags` del deporte correspondiente.
