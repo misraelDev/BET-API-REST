@@ -183,3 +183,22 @@ X-Total-Pages
 - [Ejemplos de petición](EJEMPLOS.md)
 - [Persistencia](PERSISTENCIA.md)
 - [Contrato OpenAPI](OPENAPI.md)
+# Rankings de fútbol enviados por analistas
+
+El backend no calcula ni completa rankings. Conserva las filas en el orden y con
+el contenido validado que publicó el analista. Las referencias a pronósticos son
+opcionales; cuando aparecen, se valida la revisión exacta y su compatibilidad.
+
+- `POST /api/v1/football/rankings`: recibe `{"items": [...]}` (hasta 100).
+  Cada elemento es un ranking por liga o general y se versiona con
+  `ranking_id` + `idempotency_key`.
+- `GET /api/v1/football/rankings`: filtra por `date`, `league`, `analyst`,
+  `scope` y `ranking_type`; `page`/`page_size` paginan. Sin `date`, consulta hoy
+  en `America/Mexico_City`. `include_versions=true` incluye revisiones antiguas.
+- `GET /api/v1/football/rankings/{ranking_id}`: devuelve la revisión vigente y
+  el historial. `version` o `version_id` selecciona una revisión exacta.
+
+Las escrituras requieren `target_date` explícita. Cada fila identificada como
+`not_estimated` debe incluir `no_estimate_reason`, y no puede incluir una
+probabilidad o confianza inventada. La API valida estructura, no la calidad
+deportiva ni la cobertura declarada.

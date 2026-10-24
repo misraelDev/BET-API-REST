@@ -234,6 +234,14 @@ class FootballPredictionRepository:
         )
         return prepare_document(document) if document else None
 
+    async def get_version_by_id(
+        self, prediction_id: str, version_id: str
+    ) -> dict[str, Any] | None:
+        document = await self._collection().find_one(
+            {"prediction_id": prediction_id, "version_id": version_id}
+        )
+        return prepare_document(document) if document else None
+
     async def max_version(self, prediction_id: str) -> int:
         document = await self._collection().find_one(
             {"prediction_id": prediction_id},

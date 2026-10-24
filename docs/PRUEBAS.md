@@ -49,3 +49,9 @@ La suite actual tiene **199 pruebas**.
 
 Las pruebas no requieren MongoDB ni red: usan dobles de prueba para los
 clientes externos.
+# Rankings
+
+Las pruebas del recurso deben cubrir lotes, validaciones, idempotencia,
+versionado, referencias opcionales/exactas, orden de filas y consultas de solo
+lectura. Para comprobar los contratos OpenAPI ejecuta
+`python scripts/generate_openapi.py --check`.

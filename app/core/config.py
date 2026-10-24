@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     mongodb_football_evaluations_collection: str = (
         "football_prediction_evaluations"
     )
+    mongodb_football_rankings_collection: str = "football_rankings"
     mongodb_prompts_collection: str = "prompts"
     mongodb_required: bool = False
     cors_origins: str = "http://localhost:4200,http://127.0.0.1:4200"
