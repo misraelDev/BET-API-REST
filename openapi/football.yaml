@@ -1,0 +1,1966 @@
+openapi: 3.1.0
+info:
+  title: BET Analytics API - Fútbol
+  description: Contrato OpenAPI de fútbol. Incluye solo las rutas `/api/v1/football` y los esquemas que
+    esas rutas referencian. El resto de deportes está en archivos separados dentro de `openapi/`.
+  version: 1.2.0
+  contact:
+    name: BET Analytics
+  license:
+    name: Privado
+paths:
+  /api/v1/football/results:
+    get:
+      tags:
+      - Football
+      summary: Stored Results
+      operationId: stored_results_api_v1_football_results_get
+      parameters:
+      - name: date
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          title: Date
+      - name: league
+        in: query
+        required: false
+        schema:
+          enum:
+          - all
+          - liga_mx
+          - brasileirao
+          - leagues_cup
+          type: string
+          default: all
+          title: League
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          default: 1
+          title: Page
+      - name: page_size
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 200
+          minimum: 1
+          default: 50
+          title: Page Size
+      - name: limit
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: integer
+            maximum: 200
+            minimum: 1
+          - type: 'null'
+          deprecated: true
+          title: Limit
+        deprecated: true
+      - name: hour
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: integer
+            maximum: 23
+            minimum: 0
+          - type: 'null'
+          title: Hour
+      - name: market
+        in: query
+        required: false
+        schema:
+          type: string
+          default: winner
+          title: Market
+      - name: min_probability
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: number
+            maximum: 100
+            minimum: 0
+          - type: 'null'
+          title: Min Probability
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/StoredFootballPrediction'
+                title: Response Stored Results Api V1 Football Results Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/football/results/update:
+    post:
+      tags:
+      - Football
+      summary: Update Results
+      operationId: update_results_api_v1_football_results_update_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FootballResultsUpdateRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FootballResultsUpdateResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/football/predictions/markets:
+    get:
+      tags:
+      - Football Predictions
+      summary: Catálogo de ligas, mercados, periodos y reglas
+      operationId: prediction_catalog_api_v1_football_predictions_markets_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FootballMarketCatalogResponse'
+  /api/v1/football/predictions:
+    post:
+      tags:
+      - Football Predictions
+      summary: Registra un lote de selecciones
+      description: Cada elemento del lote se guarda y liquida por separado. El servidor genera received_at
+        en UTC; received_before_kickoff compara esa hora con el inicio verificado en la fuente (o con
+        el kickoff declarado si la fuente no responde). Reenviar la misma idempotency_key con el mismo
+        cuerpo devuelve la versión existente; con otro cuerpo se rechaza ese elemento. Responder 201 si
+        se creó al menos una versión, 200 si todas fueron repeticiones y 409 si todas fueron rechazadas.
+      operationId: register_predictions_api_v1_football_predictions_post
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FootballPredictionBatchRequest'
+            examples:
+              lote_liga_mx:
+                value:
+                  items:
+                  - prediction_id: 3d0f6f3e5c1a4f0ab1c2d3e4f5a6b7c8
+                    idempotency_key: 2026-10-24-liga-mx-736644-1x2-home
+                    event_id: 736644
+                    match_date: '2026-10-24'
+                    league: liga_mx
+                    home_team: Pumas UNAM
+                    away_team: Necaxa
+                    kickoff: '2026-10-24T20:00:00-06:00'
+                    market: 1x2
+                    period: full_time
+                    selection: home
+                    probability: 58.0
+                    confidence: 4
+                    rationale: Local con mejor forma y ventaja de localía.
+                    sources:
+                    - name: ESPN
+                      url: https://site.api.espn.com/apis/site/v2/sports/soccer/mex.1/summary?event=736644
+                    analyst: ana.garcia
+                    method_version: analista-v1
+                    generated_at: '2026-10-24T10:30:00-06:00'
+                  - idempotency_key: 2026-10-24-liga-mx-736644-total-goals-over-2.5
+                    event_id: 736644
+                    match_date: '2026-10-24'
+                    league: liga_mx
+                    home_team: Pumas UNAM
+                    away_team: Necaxa
+                    market: total_goals
+                    period: full_time
+                    selection: over
+                    line: 2.5
+                    probability: 61.0
+                    confidence: 3
+                    rationale: Ambos equipos generan más de dos goles por partido.
+                    sources:
+                    - name: ESPN
+                    analyst: ana.garcia
+                    method_version: analista-v1
+      responses:
+        '201':
+          description: Al menos una selección se registró como versión nueva.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FootballPredictionBatchResponse'
+              example:
+                received_at: '2026-10-24T17:05:12.345678Z'
+                total: 2
+                created: 2
+                replayed: 0
+                rejected: 0
+                items:
+                - prediction_id: 3d0f6f3e5c1a4f0ab1c2d3e4f5a6b7c8
+                  version: 1
+                  version_id: 9a1c2e3f4b5d6a7c8e9f0a1b2c3d4e5f
+                  idempotency_key: 2026-10-24-liga-mx-736644-1x2-home
+                  status: created
+                  analyst: ana.garcia
+                  probability: 58.0
+                  received_before_kickoff: true
+                - prediction_id: 6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e
+                  version: 1
+                  version_id: 1f2e3d4c5b6a79880716253443526170
+                  idempotency_key: 2026-10-24-liga-mx-736644-total-goals-over-2.5
+                  status: created
+                  analyst: ana.garcia
+                  probability: 61.0
+                  received_before_kickoff: true
+        '200':
+          description: Todas las selecciones eran reintentos idempotentes.
+          content:
+            application/json:
+              example:
+                received_at: '2026-10-24T17:12:00Z'
+                total: 1
+                created: 0
+                replayed: 1
+                rejected: 0
+                items:
+                - prediction_id: 3d0f6f3e5c1a4f0ab1c2d3e4f5a6b7c8
+                  version: 1
+                  version_id: 9a1c2e3f4b5d6a7c8e9f0a1b2c3d4e5f
+                  idempotency_key: 2026-10-24-liga-mx-736644-1x2-home
+                  status: replayed
+                  analyst: ana.garcia
+                  probability: 58.0
+                  received_before_kickoff: true
+        '409':
+          description: Ninguna selección se pudo aceptar.
+          content:
+            application/json:
+              example:
+                received_at: '2026-10-24T17:10:00Z'
+                total: 1
+                created: 0
+                replayed: 0
+                rejected: 1
+                items:
+                - prediction_id: 3d0f6f3e5c1a4f0ab1c2d3e4f5a6b7c8
+                  idempotency_key: 2026-10-24-liga-mx-736644-1x2-home
+                  status: rejected
+                  error: idempotency_key ya existe con un cuerpo distinto.
+                  analyst: ana.garcia
+                  probability: 58.0
+        '422':
+          description: Cuerpo o parámetros inválidos.
+          content:
+            application/json:
+              example:
+                detail:
+                - type: value_error
+                  loc:
+                  - body
+                  - items
+                  - 0
+                  msg: 'Value error, El mercado corners_total no admite el periodo first_half. Periodos
+                    válidos: full_time.'
+                  input:
+                    market: corners_total
+                    period: first_half
+        '503':
+          description: MongoDB o la fuente no están disponibles.
+          content:
+            application/json:
+              example:
+                detail: Persistencia deshabilitada.
+    get:
+      tags:
+      - Football Predictions
+      summary: Consulta el historial de selecciones
+      description: Por defecto devuelve solo la versión vigente de cada selección. Usa include_versions=true
+        para ver también las versiones anteriores. match_date se interpreta como jornada en Ciudad de
+        México (UTC-6); received_date filtra por el día en que el servidor recibió el registro, también
+        en CDMX.
+      operationId: list_predictions_api_v1_football_predictions_get
+      parameters:
+      - name: match_date
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          title: Match Date
+      - name: match_date_from
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          title: Match Date From
+      - name: match_date_to
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          title: Match Date To
+      - name: received_date
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          title: Received Date
+      - name: league
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - $ref: '#/components/schemas/FootballLeague'
+          - type: 'null'
+          title: League
+      - name: event_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: integer
+            exclusiveMinimum: 0
+          - type: 'null'
+          title: Event Id
+      - name: analyst
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            minLength: 1
+          - type: 'null'
+          title: Analyst
+      - name: market
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - $ref: '#/components/schemas/Market'
+          - type: 'null'
+          title: Market
+      - name: settlement_status
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - $ref: '#/components/schemas/SettlementStatus'
+          - type: 'null'
+          title: Settlement Status
+      - name: period
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - $ref: '#/components/schemas/Period'
+          - type: 'null'
+          title: Period
+      - name: timing
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - $ref: '#/components/schemas/TimingStatus'
+          - type: 'null'
+          title: Timing
+      - name: include_versions
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: false
+          title: Include Versions
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          default: 1
+          title: Page
+      - name: page_size
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 200
+          minimum: 1
+          default: 50
+          title: Page Size
+      responses:
+        '200':
+          description: Página de selecciones registradas.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FootballPredictionListResponse'
+              example:
+                items:
+                - document_id: 671b2c3d4e5f60718293a4b5
+                  prediction_id: 3d0f6f3e5c1a4f0ab1c2d3e4f5a6b7c8
+                  version: 1
+                  version_id: 9a1c2e3f4b5d6a7c8e9f0a1b2c3d4e5f
+                  is_current: true
+                  event_id: 736644
+                  match:
+                    event_id: 736644
+                    date: '2026-10-24'
+                    declared_date: '2026-10-24'
+                    league: liga_mx
+                    league_name: Liga MX
+                    country: México
+                    home_team: Pumas UNAM
+                    away_team: Necaxa
+                    kickoff: '2026-10-25T02:00:00Z'
+                    kickoff_source: provider
+                    kickoff_verified: true
+                  market: 1x2
+                  period: full_time
+                  selection: home
+                  probability: 58.0
+                  confidence: 4
+                  rationale: Local con mejor forma y ventaja de localía.
+                  sources:
+                  - name: ESPN
+                    url: https://site.api.espn.com/apis/site/v2/sports/soccer/mex.1/summary?event=736644
+                    note: Forma reciente y estadísticas del partido.
+                  analyst: ana.garcia
+                  method_version: analista-v1
+                  generated_at: '2026-10-24T16:30:00Z'
+                  received_at: '2026-10-24T17:05:12.345678Z'
+                  timing:
+                    status: pre_match
+                    received_before_kickoff: true
+                  settlement_status: pendiente
+                  created_at: '2026-10-24T17:05:12.345678Z'
+                  updated_at: '2026-10-24T17:05:12.345678Z'
+                page: 1
+                page_size: 50
+                total: 1
+        '422':
+          description: Cuerpo o parámetros inválidos.
+          content:
+            application/json:
+              example:
+                detail:
+                - type: value_error
+                  loc:
+                  - body
+                  - items
+                  - 0
+                  msg: 'Value error, El mercado corners_total no admite el periodo first_half. Periodos
+                    válidos: full_time.'
+                  input:
+                    market: corners_total
+                    period: first_half
+        '503':
+          description: MongoDB o la fuente no están disponibles.
+          content:
+            application/json:
+              example:
+                detail: Persistencia deshabilitada.
+  /api/v1/football/predictions/{prediction_id}:
+    get:
+      tags:
+      - Football Predictions
+      summary: Recupera una selección con todas sus versiones
+      operationId: get_prediction_api_v1_football_predictions__prediction_id__get
+      parameters:
+      - name: prediction_id
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: ^[A-Za-z0-9][A-Za-z0-9_-]{7,63}$
+          title: Prediction Id
+      responses:
+        '200':
+          description: Selección con su historial de versiones.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FootballPredictionDetailResponse'
+              example:
+                prediction_id: 3d0f6f3e5c1a4f0ab1c2d3e4f5a6b7c8
+                total_versions: 1
+                current_version: 1
+                versions:
+                - document_id: 671b2c3d4e5f60718293a4b5
+                  prediction_id: 3d0f6f3e5c1a4f0ab1c2d3e4f5a6b7c8
+                  version: 1
+                  version_id: 9a1c2e3f4b5d6a7c8e9f0a1b2c3d4e5f
+                  is_current: true
+                  event_id: 736644
+                  match:
+                    event_id: 736644
+                    date: '2026-10-24'
+                    declared_date: '2026-10-24'
+                    league: liga_mx
+                    league_name: Liga MX
+                    country: México
+                    home_team: Pumas UNAM
+                    away_team: Necaxa
+                    kickoff: '2026-10-25T02:00:00Z'
+                    kickoff_source: provider
+                    kickoff_verified: true
+                  market: 1x2
+                  period: full_time
+                  selection: home
+                  probability: 58.0
+                  confidence: 4
+                  rationale: Local con mejor forma y ventaja de localía.
+                  sources:
+                  - name: ESPN
+                    url: https://site.api.espn.com/apis/site/v2/sports/soccer/mex.1/summary?event=736644
+                    note: Forma reciente y estadísticas del partido.
+                  analyst: ana.garcia
+                  method_version: analista-v1
+                  generated_at: '2026-10-24T16:30:00Z'
+                  received_at: '2026-10-24T17:05:12.345678Z'
+                  timing:
+                    status: pre_match
+                    received_before_kickoff: true
+                  settlement_status: pendiente
+                  created_at: '2026-10-24T17:05:12.345678Z'
+                  updated_at: '2026-10-24T17:05:12.345678Z'
+        '404':
+          description: No existe ese prediction_id.
+          content:
+            application/json:
+              example:
+                detail: No encontrado.
+        '422':
+          description: Cuerpo o parámetros inválidos.
+          content:
+            application/json:
+              example:
+                detail:
+                - type: value_error
+                  loc:
+                  - body
+                  - items
+                  - 0
+                  msg: 'Value error, El mercado corners_total no admite el periodo first_half. Periodos
+                    válidos: full_time.'
+                  input:
+                    market: corners_total
+                    period: first_half
+        '503':
+          description: MongoDB o la fuente no están disponibles.
+          content:
+            application/json:
+              example:
+                detail: Persistencia deshabilitada.
+  /api/v1/football/predictions/{prediction_id}/evaluations:
+    post:
+      tags:
+      - Football Predictions
+      summary: Registra la evaluación posterior del analista
+      description: La evaluación se guarda en una colección aparte y queda ligada al prediction_id, versión
+        y version_id. No modifica la selección, probabilidad, confianza ni fecha originales. La liquidación
+        oficial sigue siendo responsabilidad del servicio autorizado.
+      operationId: create_evaluation_api_v1_football_predictions__prediction_id__evaluations_post
+      parameters:
+      - name: prediction_id
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: ^[A-Za-z0-9][A-Za-z0-9_-]{7,63}$
+          title: Prediction Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FootballPredictionEvaluationCreate'
+      responses:
+        '201':
+          description: Evaluación posterior registrada.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StoredEvaluation'
+              example:
+                evaluation_id: 671c3d4e5f60718293a4b5c6
+                prediction_id: 3d0f6f3e5c1a4f0ab1c2d3e4f5a6b7c8
+                version: 1
+                version_id: 9a1c2e3f4b5d6a7c8e9f0a1b2c3d4e5f
+                analyst: ana.garcia
+                diagnosis: El local dominó el primer tiempo, pero el gol visitante al 60' cambió el guion;
+                  el 1X2 se resolvió por un gol tardío.
+                learnings:
+                - La ventaja de localía pesó más que la forma reciente.
+                - No dar por cerrado un 1X2 con un solo gol de diferencia.
+                sources:
+                - name: ESPN
+                  note: Resumen del partido.
+                outcome_comment: Se cumplió la lectura del primer tiempo.
+                tags:
+                - 1x2
+                - lectura-de-partido
+                created_at: '2026-10-25T05:10:00Z'
+        '404':
+          description: No existe el pronóstico o la versión indicada.
+          content:
+            application/json:
+              example:
+                detail: No encontrado.
+        '409':
+          description: Ese analista ya evaluó esa versión.
+          content:
+            application/json:
+              example:
+                detail: Ya existe una evaluación de este analista para esa versión.
+        '422':
+          description: Cuerpo o parámetros inválidos.
+          content:
+            application/json:
+              example:
+                detail:
+                - type: value_error
+                  loc:
+                  - body
+                  - items
+                  - 0
+                  msg: 'Value error, El mercado corners_total no admite el periodo first_half. Periodos
+                    válidos: full_time.'
+                  input:
+                    market: corners_total
+                    period: first_half
+        '503':
+          description: MongoDB o la fuente no están disponibles.
+          content:
+            application/json:
+              example:
+                detail: Persistencia deshabilitada.
+    get:
+      tags:
+      - Football Predictions
+      summary: Consulta las evaluaciones posteriores
+      operationId: list_evaluations_api_v1_football_predictions__prediction_id__evaluations_get
+      parameters:
+      - name: prediction_id
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: ^[A-Za-z0-9][A-Za-z0-9_-]{7,63}$
+          title: Prediction Id
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          default: 1
+          title: Page
+      - name: page_size
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 200
+          minimum: 1
+          default: 50
+          title: Page Size
+      responses:
+        '200':
+          description: Evaluaciones posteriores de la selección.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FootballEvaluationListResponse'
+              example:
+                items:
+                - evaluation_id: 671c3d4e5f60718293a4b5c6
+                  prediction_id: 3d0f6f3e5c1a4f0ab1c2d3e4f5a6b7c8
+                  version: 1
+                  version_id: 9a1c2e3f4b5d6a7c8e9f0a1b2c3d4e5f
+                  analyst: ana.garcia
+                  diagnosis: El local dominó el primer tiempo, pero el gol visitante al 60' cambió el
+                    guion; el 1X2 se resolvió por un gol tardío.
+                  learnings:
+                  - La ventaja de localía pesó más que la forma reciente.
+                  - No dar por cerrado un 1X2 con un solo gol de diferencia.
+                  sources:
+                  - name: ESPN
+                    note: Resumen del partido.
+                  outcome_comment: Se cumplió la lectura del primer tiempo.
+                  tags:
+                  - 1x2
+                  - lectura-de-partido
+                  created_at: '2026-10-25T05:10:00Z'
+                page: 1
+                page_size: 50
+                total: 1
+        '404':
+          description: No existe ese prediction_id.
+          content:
+            application/json:
+              example:
+                detail: No encontrado.
+        '422':
+          description: Cuerpo o parámetros inválidos.
+          content:
+            application/json:
+              example:
+                detail:
+                - type: value_error
+                  loc:
+                  - body
+                  - items
+                  - 0
+                  msg: 'Value error, El mercado corners_total no admite el periodo first_half. Periodos
+                    válidos: full_time.'
+                  input:
+                    market: corners_total
+                    period: first_half
+        '503':
+          description: MongoDB o la fuente no están disponibles.
+          content:
+            application/json:
+              example:
+                detail: Persistencia deshabilitada.
+components:
+  schemas:
+    FootballEvaluationListResponse:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/StoredEvaluation'
+          type: array
+          title: Items
+        page:
+          type: integer
+          title: Page
+        page_size:
+          type: integer
+          title: Page Size
+        total:
+          type: integer
+          title: Total
+      type: object
+      required:
+      - items
+      - page
+      - page_size
+      - total
+      title: FootballEvaluationListResponse
+    FootballLeague:
+      type: string
+      enum:
+      - liga_mx
+      - liga_expansion_mx
+      - brasileirao
+      - leagues_cup
+      - mls
+      - la_liga
+      - premier_league
+      - serie_a
+      - bundesliga
+      - ligue_1
+      - champions_league
+      - europa_league
+      - libertadores
+      - sudamericana
+      - liga_betplay
+      - liga_profesional_argentina
+      - primera_division_chile
+      - liga_1_peru
+      - ligapro_ecuador
+      - primera_division_uruguay
+      title: FootballLeague
+      description: Competiciones consultables y liquidables con el nuevo contrato.
+    FootballLeagueCatalogItem:
+      properties:
+        code:
+          $ref: '#/components/schemas/FootballLeague'
+        name:
+          type: string
+          title: Name
+        country:
+          type: string
+          title: Country
+        source:
+          type: string
+          title: Source
+      type: object
+      required:
+      - code
+      - name
+      - country
+      - source
+      title: FootballLeagueCatalogItem
+    FootballMarketCatalogResponse:
+      properties:
+        rule_version:
+          type: string
+          title: Rule Version
+        periods:
+          additionalProperties:
+            type: string
+          type: object
+          title: Periods
+        settlement_statuses:
+          additionalProperties:
+            type: string
+          type: object
+          title: Settlement Statuses
+        leagues:
+          items:
+            $ref: '#/components/schemas/FootballLeagueCatalogItem'
+          type: array
+          title: Leagues
+        markets:
+          items:
+            $ref: '#/components/schemas/FootballMarketRuleResponse'
+          type: array
+          title: Markets
+      type: object
+      required:
+      - rule_version
+      - periods
+      - settlement_statuses
+      - leagues
+      - markets
+      title: FootballMarketCatalogResponse
+    FootballMarketRuleResponse:
+      properties:
+        market:
+          $ref: '#/components/schemas/Market'
+        label:
+          type: string
+          title: Label
+        periods:
+          items:
+            $ref: '#/components/schemas/Period'
+          type: array
+          title: Periods
+        selection_values:
+          items:
+            type: string
+          type: array
+          title: Selection Values
+        requires_line:
+          type: boolean
+          title: Requires Line
+        requires_team:
+          type: boolean
+          title: Requires Team
+        requires_player:
+          type: boolean
+          title: Requires Player
+        requires_score:
+          type: boolean
+          title: Requires Score
+        line_must_be_positive:
+          type: boolean
+          title: Line Must Be Positive
+        settlement_rule:
+          type: string
+          title: Settlement Rule
+      type: object
+      required:
+      - market
+      - label
+      - periods
+      - selection_values
+      - requires_line
+      - requires_team
+      - requires_player
+      - requires_score
+      - line_must_be_positive
+      - settlement_rule
+      title: FootballMarketRuleResponse
+    FootballPredictionBatchItemResult:
+      properties:
+        prediction_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Prediction Id
+        version:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Version
+        version_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Version Id
+        idempotency_key:
+          type: string
+          title: Idempotency Key
+        status:
+          type: string
+          enum:
+          - created
+          - replayed
+          - rejected
+          title: Status
+        error:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Error
+        analyst:
+          type: string
+          title: Analyst
+        probability:
+          type: number
+          title: Probability
+        received_before_kickoff:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Received Before Kickoff
+      type: object
+      required:
+      - idempotency_key
+      - status
+      - analyst
+      - probability
+      title: FootballPredictionBatchItemResult
+    FootballPredictionBatchRequest:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/FootballPredictionCreate'
+          type: array
+          maxItems: 100
+          minItems: 1
+          title: Items
+          description: Selecciones a registrar. Máximo 100 por petición.
+      additionalProperties: false
+      type: object
+      required:
+      - items
+      title: FootballPredictionBatchRequest
+      description: Carga por lotes. Cada elemento se guarda y evalúa por separado.
+    FootballPredictionBatchResponse:
+      properties:
+        received_at:
+          type: string
+          format: date-time
+          title: Received At
+        total:
+          type: integer
+          title: Total
+        created:
+          type: integer
+          title: Created
+        replayed:
+          type: integer
+          title: Replayed
+        rejected:
+          type: integer
+          title: Rejected
+        items:
+          items:
+            $ref: '#/components/schemas/FootballPredictionBatchItemResult'
+          type: array
+          title: Items
+      type: object
+      required:
+      - received_at
+      - total
+      - created
+      - replayed
+      - rejected
+      - items
+      title: FootballPredictionBatchResponse
+    FootballPredictionCreate:
+      properties:
+        prediction_id:
+          anyOf:
+          - type: string
+            pattern: ^[A-Za-z0-9][A-Za-z0-9_-]{7,63}$
+          - type: 'null'
+          title: Prediction Id
+          description: Identificador lógico y estable de la selección. Si se omite, el servidor genera
+            uno. Enviarlo de nuevo crea una versión nueva.
+          examples:
+          - 3d0f6f3e5c1a4f0ab1c2d3e4f5a6b7c8
+        idempotency_key:
+          type: string
+          pattern: ^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$
+          title: Idempotency Key
+          description: Clave única del envío. Un reintento con la misma clave y el mismo cuerpo devuelve
+            la versión existente; con un cuerpo distinto se rechaza como conflicto.
+          examples:
+          - 2026-10-24-liga-mx-123456-1x2-home
+        event_id:
+          type: integer
+          exclusiveMinimum: 0.0
+          title: Event Id
+          description: Identificador del partido en la fuente (ESPN).
+          examples:
+          - 736644
+        match_date:
+          type: string
+          format: date
+          title: Match Date
+          description: Fecha del partido en horario de Ciudad de México (UTC-6). Es el campo que filtra
+            la jornada.
+          examples:
+          - '2026-10-24'
+        league:
+          $ref: '#/components/schemas/FootballLeague'
+          description: Competición. Consulta el catálogo en /predictions/markets.
+          examples:
+          - liga_mx
+        home_team:
+          type: string
+          maxLength: 120
+          minLength: 1
+          title: Home Team
+          description: Equipo local tal como lo reporta la fuente.
+          examples:
+          - Pumas UNAM
+        away_team:
+          type: string
+          maxLength: 120
+          minLength: 1
+          title: Away Team
+          description: Equipo visitante tal como lo reporta la fuente.
+          examples:
+          - Necaxa
+        kickoff:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Kickoff
+          description: Inicio del partido con offset. El servidor intenta verificarlo contra la fuente;
+            si no lo logra, usa este valor como referencia y marca kickoff_verified=false.
+          examples:
+          - '2026-10-24T20:00:00-06:00'
+        market:
+          $ref: '#/components/schemas/Market'
+          description: Mercado de la selección.
+          examples:
+          - 1x2
+        period:
+          $ref: '#/components/schemas/Period'
+          description: Periodo evaluado. full_time = 90 minutos + añadido, sin alargue ni penales. second_half
+            no acumula el primer tiempo. Córners, remates y remates a puerta solo admiten full_time.
+          default: full_time
+          examples:
+          - full_time
+        selection:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Selection
+          description: 'Selección del mercado. 1x2: home/draw/away. Doble oportunidad: home_or_draw, home_or_away
+            o draw_or_away. Hándicaps y más córners: home/away o home/draw/away. Over/under: over/under.
+            BTTS: yes/no. Primer gol: home/away/none. Marcador exacto no usa este campo.'
+          examples:
+          - home
+        line:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Line
+          description: Línea del mercado, en múltiplos de 0.5. En hándicaps se suma al marcador del equipo
+            elegido (local -1.5 se envía como -1.5). En over/under debe ser positiva.
+          examples:
+          - -1.5
+        team:
+          anyOf:
+          - type: string
+            enum:
+            - home
+            - away
+          - type: 'null'
+          title: Team
+          description: Equipo para mercados por equipo (goles, córners, tarjetas, remates).
+          examples:
+          - home
+        player:
+          anyOf:
+          - type: string
+            maxLength: 120
+            minLength: 2
+          - type: 'null'
+          title: Player
+          description: Nombre del jugador para mercados de jugador.
+          examples:
+          - Guillermo Martínez
+        player_id:
+          anyOf:
+          - type: string
+            maxLength: 64
+          - type: 'null'
+          title: Player Id
+          description: Id del jugador en la fuente. Mejora la identificación.
+          examples:
+          - '329917'
+        home_goals:
+          anyOf:
+          - type: integer
+            maximum: 20.0
+            minimum: 0.0
+          - type: 'null'
+          title: Home Goals
+          description: Goles del local para marcador exacto.
+          examples:
+          - 2
+        away_goals:
+          anyOf:
+          - type: integer
+            maximum: 20.0
+            minimum: 0.0
+          - type: 'null'
+          title: Away Goals
+          description: Goles del visitante para marcador exacto.
+          examples:
+          - 1
+        probability:
+          type: number
+          maximum: 100.0
+          minimum: 0.0
+          title: Probability
+          description: Probabilidad declarada por el analista (0-100).
+          examples:
+          - 58.0
+        confidence:
+          type: integer
+          maximum: 5.0
+          minimum: 1.0
+          title: Confidence
+          description: Confianza en estrellas (1-5).
+          examples:
+          - 4
+        rationale:
+          type: string
+          maxLength: 4000
+          minLength: 5
+          title: Rationale
+          description: Justificación de la selección.
+          examples:
+          - Local con mejor forma y ventaja de localía.
+        sources:
+          items:
+            $ref: '#/components/schemas/PredictionSource'
+          type: array
+          maxItems: 20
+          minItems: 1
+          title: Sources
+          description: Fuentes consultadas. Se exige al menos una.
+        analyst:
+          type: string
+          maxLength: 80
+          minLength: 2
+          title: Analyst
+          description: Identificador del analista que emite la selección.
+          examples:
+          - ana.garcia
+        method_version:
+          type: string
+          maxLength: 40
+          minLength: 1
+          title: Method Version
+          description: Versión del método o modelo usado por el analista.
+          examples:
+          - analista-v1
+        generated_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Generated At
+          description: Hora en que el analista generó la selección, con offset. Se conserva aparte y nunca
+            sustituye a received_at.
+          examples:
+          - '2026-10-24T10:30:00-06:00'
+        notes:
+          anyOf:
+          - type: string
+            maxLength: 1000
+          - type: 'null'
+          title: Notes
+          description: Nota libre para el análisis posterior.
+      additionalProperties: false
+      type: object
+      required:
+      - idempotency_key
+      - event_id
+      - match_date
+      - league
+      - home_team
+      - away_team
+      - market
+      - probability
+      - confidence
+      - rationale
+      - sources
+      - analyst
+      - method_version
+      title: FootballPredictionCreate
+      description: 'Una selección atómica dentro de una carga por lotes.
+
+
+        ``prediction_id`` es el identificador lógico y estable de la selección. Si
+
+        se envía de nuevo con el mismo ``prediction_id``, la API crea una versión
+
+        nueva (no sobrescribe). ``idempotency_key`` evita duplicados por reintentos.'
+      examples:
+      - analyst: ana.garcia
+        away_team: Necaxa
+        confidence: 4
+        event_id: 736644
+        generated_at: '2026-10-24T10:30:00-06:00'
+        home_team: Pumas UNAM
+        idempotency_key: 2026-10-24-liga-mx-123456-1x2-home
+        kickoff: '2026-10-24T20:00:00-06:00'
+        league: liga_mx
+        market: 1x2
+        match_date: '2026-10-24'
+        method_version: analista-v1
+        period: full_time
+        prediction_id: 3d0f6f3e5c1a4f0ab1c2d3e4f5a6b7c8
+        probability: 58.0
+        rationale: Local con mejor forma y ventaja de localía.
+        selection: home
+        sources:
+        - name: ESPN
+          url: https://site.api.espn.com/apis/site/v2/sports/soccer/mex.1/summary?event=736644
+    FootballPredictionDetailResponse:
+      properties:
+        prediction_id:
+          type: string
+          title: Prediction Id
+        total_versions:
+          type: integer
+          title: Total Versions
+        current_version:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Current Version
+        versions:
+          items:
+            $ref: '#/components/schemas/StoredPrediction'
+          type: array
+          title: Versions
+      type: object
+      required:
+      - prediction_id
+      - total_versions
+      - versions
+      title: FootballPredictionDetailResponse
+    FootballPredictionEvaluationCreate:
+      properties:
+        version:
+          anyOf:
+          - type: integer
+            minimum: 1.0
+          - type: 'null'
+          title: Version
+          description: Versión evaluada. Si se omite, se usa la versión actual.
+          examples:
+          - 1
+        analyst:
+          type: string
+          maxLength: 80
+          minLength: 2
+          title: Analyst
+          description: Analista que escribe la evaluación.
+          examples:
+          - ana.garcia
+        diagnosis:
+          type: string
+          maxLength: 4000
+          minLength: 10
+          title: Diagnosis
+          description: Qué pasó y por qué la selección acertó o falló.
+        learnings:
+          items:
+            type: string
+          type: array
+          maxItems: 20
+          minItems: 1
+          title: Learnings
+          description: Aprendizajes accionables para próximas selecciones.
+        sources:
+          items:
+            $ref: '#/components/schemas/PredictionSource'
+          type: array
+          maxItems: 20
+          minItems: 1
+          title: Sources
+          description: Fuentes usadas para la evaluación posterior.
+        outcome_comment:
+          anyOf:
+          - type: string
+            maxLength: 1000
+          - type: 'null'
+          title: Outcome Comment
+          description: Comentario libre sobre el resultado observado.
+        tags:
+          items:
+            type: string
+          type: array
+          maxItems: 20
+          title: Tags
+          description: Etiquetas para agrupar aprendizajes.
+      additionalProperties: false
+      type: object
+      required:
+      - analyst
+      - diagnosis
+      - learnings
+      - sources
+      title: FootballPredictionEvaluationCreate
+      description: Diagnóstico posterior del analista. No modifica el pronóstico original.
+    FootballPredictionListResponse:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/StoredPrediction'
+          type: array
+          title: Items
+        page:
+          type: integer
+          title: Page
+        page_size:
+          type: integer
+          title: Page Size
+        total:
+          type: integer
+          title: Total
+      type: object
+      required:
+      - items
+      - page
+      - page_size
+      - total
+      title: FootballPredictionListResponse
+    FootballResultsUpdateError:
+      properties:
+        event_id:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Event Id
+        stage:
+          type: string
+          title: Stage
+        message:
+          type: string
+          title: Message
+      type: object
+      required:
+      - stage
+      - message
+      title: FootballResultsUpdateError
+    FootballResultsUpdateRequest:
+      properties:
+        date:
+          type: string
+          format: date
+          title: Date
+      type: object
+      required:
+      - date
+      title: FootballResultsUpdateRequest
+    FootballResultsUpdateResponse:
+      properties:
+        date:
+          type: string
+          format: date
+          title: Date
+        source:
+          type: string
+          title: Source
+          description: Fuentes consultadas para actualizar resultados.
+          default: ESPN public summary + TheSportsDB public schedule
+        official_fixtures:
+          type: integer
+          title: Official Fixtures
+        final_fixtures:
+          type: integer
+          title: Final Fixtures
+        predictions_matched:
+          type: integer
+          title: Predictions Matched
+          description: Contador heredado de la colección predictions.
+        predictions_updated:
+          type: integer
+          title: Predictions Updated
+          description: Contador heredado de la colección predictions.
+        football_predictions_matched:
+          type: integer
+          title: Football Predictions Matched
+          default: 0
+        football_predictions_settled:
+          type: integer
+          title: Football Predictions Settled
+          default: 0
+        football_predictions_updated:
+          type: integer
+          title: Football Predictions Updated
+          default: 0
+        football_predictions_pending:
+          type: integer
+          title: Football Predictions Pending
+          default: 0
+        unmatched_event_ids:
+          items:
+            type: string
+          type: array
+          title: Unmatched Event Ids
+        fixtures_without_predictions:
+          items:
+            type: integer
+          type: array
+          title: Fixtures Without Predictions
+        errors:
+          items:
+            $ref: '#/components/schemas/FootballResultsUpdateError'
+          type: array
+          title: Errors
+      type: object
+      required:
+      - date
+      - official_fixtures
+      - final_fixtures
+      - predictions_matched
+      - predictions_updated
+      title: FootballResultsUpdateResponse
+    HTTPValidationError:
+      properties:
+        detail:
+          items:
+            $ref: '#/components/schemas/ValidationError'
+          type: array
+          title: Detail
+      type: object
+      title: HTTPValidationError
+    KickoffSource:
+      type: string
+      enum:
+      - provider
+      - request
+      - unknown
+      title: KickoffSource
+    Market:
+      type: string
+      enum:
+      - 1x2
+      - double_chance
+      - asian_handicap
+      - european_handicap
+      - total_goals
+      - team_total_goals
+      - btts
+      - corners_total
+      - corners_team
+      - corners_handicap
+      - corners_most
+      - cards_total
+      - cards_team
+      - cards_player
+      - exact_score
+      - first_team_to_score
+      - shots_total
+      - shots_team
+      - shots_player
+      - shots_on_target_total
+      - shots_on_target_team
+      - shots_on_target_player
+      title: Market
+    Period:
+      type: string
+      enum:
+      - full_time
+      - first_half
+      - second_half
+      title: Period
+    PredictionSettlement:
+      properties:
+        status:
+          $ref: '#/components/schemas/SettlementStatus'
+        observed:
+          additionalProperties: true
+          type: object
+          title: Observed
+          description: Datos observados que sustentan la liquidación.
+        summary:
+          type: string
+          title: Summary
+        reason:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Reason
+        source:
+          $ref: '#/components/schemas/SettlementSource'
+        settled_at:
+          type: string
+          format: date-time
+          title: Settled At
+        rule_version:
+          type: string
+          title: Rule Version
+      type: object
+      required:
+      - status
+      - observed
+      - summary
+      - source
+      - settled_at
+      - rule_version
+      title: PredictionSettlement
+    PredictionSource:
+      properties:
+        name:
+          type: string
+          maxLength: 120
+          minLength: 2
+          title: Name
+          description: Nombre de la fuente (ESPN, sitio del club, API, etc.).
+          examples:
+          - ESPN
+        url:
+          anyOf:
+          - type: string
+            maxLength: 2083
+            minLength: 1
+            format: uri
+          - type: 'null'
+          title: Url
+          description: Enlace consultado. Opcional, pero recomendado para auditoría.
+          examples:
+          - https://site.api.espn.com/apis/site/v2/sports/soccer/mex.1/summary?event=736644
+        note:
+          anyOf:
+          - type: string
+            maxLength: 500
+          - type: 'null'
+          title: Note
+          description: Nota sobre qué dato se tomó de esta fuente.
+          examples:
+          - Estadísticas de córners y tarjetas del partido.
+      additionalProperties: false
+      type: object
+      required:
+      - name
+      title: PredictionSource
+      description: Fuente consultada por el analista para respaldar su selección.
+    SettlementSource:
+      properties:
+        name:
+          type: string
+          title: Name
+        url:
+          anyOf:
+          - type: string
+            maxLength: 2083
+            minLength: 1
+            format: uri
+          - type: 'null'
+          title: Url
+        retrieved_at:
+          type: string
+          format: date-time
+          title: Retrieved At
+      type: object
+      required:
+      - name
+      - retrieved_at
+      title: SettlementSource
+    SettlementStatus:
+      type: string
+      enum:
+      - pendiente
+      - acertado
+      - fallado
+      - reembolso
+      - anulado
+      - no_evaluable
+      title: SettlementStatus
+    StoredEvaluation:
+      properties:
+        evaluation_id:
+          type: string
+          title: Evaluation Id
+        prediction_id:
+          type: string
+          title: Prediction Id
+        version:
+          type: integer
+          title: Version
+        version_id:
+          type: string
+          title: Version Id
+        analyst:
+          type: string
+          title: Analyst
+        diagnosis:
+          type: string
+          title: Diagnosis
+        learnings:
+          items:
+            type: string
+          type: array
+          title: Learnings
+        sources:
+          items:
+            $ref: '#/components/schemas/PredictionSource'
+          type: array
+          title: Sources
+        outcome_comment:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Outcome Comment
+        tags:
+          items:
+            type: string
+          type: array
+          title: Tags
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+      type: object
+      required:
+      - evaluation_id
+      - prediction_id
+      - version
+      - version_id
+      - analyst
+      - diagnosis
+      - learnings
+      - sources
+      - created_at
+      title: StoredEvaluation
+    StoredFootballPrediction:
+      properties:
+        document_id:
+          type: string
+          title: Document Id
+        event_id:
+          type: integer
+          title: Event Id
+        requested_date:
+          type: string
+          title: Requested Date
+        model_version:
+          type: string
+          title: Model Version
+        prediction:
+          additionalProperties: true
+          type: object
+          title: Prediction
+        generated_at:
+          type: string
+          format: date-time
+          title: Generated At
+        updated_at:
+          type: string
+          format: date-time
+          title: Updated At
+        settlement:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Settlement
+      type: object
+      required:
+      - document_id
+      - event_id
+      - requested_date
+      - model_version
+      - prediction
+      - generated_at
+      - updated_at
+      title: StoredFootballPrediction
+    StoredMatch:
+      properties:
+        event_id:
+          type: integer
+          title: Event Id
+        date:
+          type: string
+          format: date
+          title: Date
+          description: Fecha en CDMX (UTC-6).
+        declared_date:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          title: Declared Date
+          description: Fecha que declaró el analista, conservada para auditoría.
+        league:
+          $ref: '#/components/schemas/FootballLeague'
+        league_name:
+          type: string
+          title: League Name
+        country:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Country
+        home_team:
+          type: string
+          title: Home Team
+        away_team:
+          type: string
+          title: Away Team
+        kickoff:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Kickoff
+          description: Inicio en UTC, cuando se conoce.
+        kickoff_source:
+          $ref: '#/components/schemas/KickoffSource'
+        kickoff_verified:
+          type: boolean
+          title: Kickoff Verified
+      type: object
+      required:
+      - event_id
+      - date
+      - league
+      - league_name
+      - home_team
+      - away_team
+      - kickoff_source
+      - kickoff_verified
+      title: StoredMatch
+    StoredPrediction:
+      properties:
+        document_id:
+          type: string
+          title: Document Id
+        prediction_id:
+          type: string
+          title: Prediction Id
+        version:
+          type: integer
+          title: Version
+        version_id:
+          type: string
+          title: Version Id
+        is_current:
+          type: boolean
+          title: Is Current
+        supersedes_version_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Supersedes Version Id
+        event_id:
+          type: integer
+          title: Event Id
+        match:
+          $ref: '#/components/schemas/StoredMatch'
+        market:
+          $ref: '#/components/schemas/Market'
+        period:
+          $ref: '#/components/schemas/Period'
+        selection:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Selection
+        line:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Line
+        team:
+          anyOf:
+          - type: string
+            enum:
+            - home
+            - away
+          - type: 'null'
+          title: Team
+        player:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Player
+        player_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Player Id
+        home_goals:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Home Goals
+        away_goals:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Away Goals
+        probability:
+          type: number
+          title: Probability
+        confidence:
+          type: integer
+          title: Confidence
+        rationale:
+          type: string
+          title: Rationale
+        sources:
+          items:
+            $ref: '#/components/schemas/PredictionSource'
+          type: array
+          title: Sources
+        analyst:
+          type: string
+          title: Analyst
+        method_version:
+          type: string
+          title: Method Version
+        generated_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Generated At
+        received_at:
+          type: string
+          format: date-time
+          title: Received At
+        timing:
+          $ref: '#/components/schemas/StoredTiming'
+        settlement_status:
+          $ref: '#/components/schemas/SettlementStatus'
+        settlement:
+          anyOf:
+          - $ref: '#/components/schemas/PredictionSettlement'
+          - type: 'null'
+        notes:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Notes
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+        updated_at:
+          type: string
+          format: date-time
+          title: Updated At
+      type: object
+      required:
+      - document_id
+      - prediction_id
+      - version
+      - version_id
+      - is_current
+      - event_id
+      - match
+      - market
+      - period
+      - probability
+      - confidence
+      - rationale
+      - sources
+      - analyst
+      - method_version
+      - received_at
+      - timing
+      - settlement_status
+      - created_at
+      - updated_at
+      title: StoredPrediction
+    StoredTiming:
+      properties:
+        status:
+          $ref: '#/components/schemas/TimingStatus'
+        received_before_kickoff:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Received Before Kickoff
+      type: object
+      required:
+      - status
+      title: StoredTiming
+    TimingStatus:
+      type: string
+      enum:
+      - pre_match
+      - late
+      - unverified
+      title: TimingStatus
+    ValidationError:
+      properties:
+        loc:
+          items:
+            anyOf:
+            - type: string
+            - type: integer
+          type: array
+          title: Location
+        msg:
+          type: string
+          title: Message
+        type:
+          type: string
+          title: Error Type
+      type: object
+      required:
+      - loc
+      - msg
+      - type
+      title: ValidationError
+servers:
+- url: http://127.0.0.1:8000
+  description: Desarrollo local (uvicorn)
+- url: http://localhost:8000
+  description: Alias de loopback
+tags:
+- name: Football
+  description: Resultados y liquidación de fútbol.

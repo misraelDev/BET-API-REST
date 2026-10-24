@@ -1,0 +1,268 @@
+openapi: 3.1.0
+info:
+  title: BET Analytics API - NBA
+  description: Contrato OpenAPI de básquetbol (NBA). Incluye solo las rutas `/api/v1/nba` y los esquemas
+    que esas rutas referencian. El resto de deportes está en archivos separados dentro de `openapi/`.
+  version: 1.2.0
+  contact:
+    name: BET Analytics
+  license:
+    name: Privado
+paths:
+  /api/v1/nba/results:
+    get:
+      tags:
+      - NBA
+      summary: Stored Results
+      operationId: stored_results_api_v1_nba_results_get
+      parameters:
+      - name: date
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          title: Date
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          default: 1
+          title: Page
+      - name: page_size
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 200
+          minimum: 1
+          default: 50
+          title: Page Size
+      - name: hour
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: integer
+            maximum: 23
+            minimum: 0
+          - type: 'null'
+          title: Hour
+      - name: league
+        in: query
+        required: false
+        schema:
+          $ref: '#/components/schemas/BasketballLeague'
+          default: nba
+      - name: market
+        in: query
+        required: false
+        schema:
+          type: string
+          default: winner
+          title: Market
+      - name: min_probability
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: number
+            maximum: 100
+            minimum: 0
+          - type: 'null'
+          title: Min Probability
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/StoredNbaPrediction'
+                title: Response Stored Results Api V1 Nba Results Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/nba/results/update:
+    post:
+      tags:
+      - NBA
+      summary: Update Results
+      operationId: update_results_api_v1_nba_results_update_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NbaResultsUpdateRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NbaResultsUpdateResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+components:
+  schemas:
+    BasketballLeague:
+      type: string
+      enum:
+      - all
+      - nba
+      - wnba
+      - summer_league
+      title: BasketballLeague
+    HTTPValidationError:
+      properties:
+        detail:
+          items:
+            $ref: '#/components/schemas/ValidationError'
+          type: array
+          title: Detail
+      type: object
+      title: HTTPValidationError
+    NbaResultsUpdateRequest:
+      properties:
+        date:
+          type: string
+          format: date
+          title: Date
+        league:
+          $ref: '#/components/schemas/BasketballLeague'
+          default: nba
+      type: object
+      required:
+      - date
+      title: NbaResultsUpdateRequest
+    NbaResultsUpdateResponse:
+      properties:
+        date:
+          type: string
+          format: date
+          title: Date
+        league:
+          type: string
+          title: League
+        official_games:
+          type: integer
+          title: Official Games
+        final_games:
+          type: integer
+          title: Final Games
+        predictions_matched:
+          type: integer
+          title: Predictions Matched
+        predictions_updated:
+          type: integer
+          title: Predictions Updated
+      type: object
+      required:
+      - date
+      - league
+      - official_games
+      - final_games
+      - predictions_matched
+      - predictions_updated
+      title: NbaResultsUpdateResponse
+    StoredNbaPrediction:
+      properties:
+        document_id:
+          type: string
+          title: Document Id
+        sport:
+          type: string
+          title: Sport
+        event_id:
+          type: integer
+          title: Event Id
+        requested_date:
+          type: string
+          title: Requested Date
+        model_version:
+          type: string
+          title: Model Version
+        provider:
+          type: string
+          title: Provider
+        timezone:
+          type: string
+          title: Timezone
+        prediction:
+          additionalProperties: true
+          type: object
+          title: Prediction
+        generated_at:
+          type: string
+          format: date-time
+          title: Generated At
+        updated_at:
+          type: string
+          format: date-time
+          title: Updated At
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+        settlement:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Settlement
+      type: object
+      required:
+      - document_id
+      - sport
+      - event_id
+      - requested_date
+      - model_version
+      - provider
+      - timezone
+      - prediction
+      - generated_at
+      - updated_at
+      - created_at
+      title: StoredNbaPrediction
+    ValidationError:
+      properties:
+        loc:
+          items:
+            anyOf:
+            - type: string
+            - type: integer
+          type: array
+          title: Location
+        msg:
+          type: string
+          title: Message
+        type:
+          type: string
+          title: Error Type
+      type: object
+      required:
+      - loc
+      - msg
+      - type
+      title: ValidationError
+servers:
+- url: http://127.0.0.1:8000
+  description: Desarrollo local (uvicorn)
+- url: http://localhost:8000
+  description: Alias de loopback
+tags:
+- name: NBA
+  description: Resultados y liquidación de básquetbol (NBA).

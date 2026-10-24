@@ -1,0 +1,330 @@
+openapi: 3.1.0
+info:
+  title: BET Analytics API - Sistema
+  description: Contrato OpenAPI de sistema. Incluye solo las rutas `/health`, `/api/v1/sports`, `/api/v1/records`
+    y los esquemas que esas rutas referencian. El resto de deportes está en archivos separados dentro
+    de `openapi/`.
+  version: 1.2.0
+  contact:
+    name: BET Analytics
+  license:
+    name: Privado
+paths:
+  /api/v1/records:
+    post:
+      tags:
+      - Records
+      summary: Registrar un partido con tu pick
+      operationId: create_record_api_v1_records_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RecordCreateRequest'
+        required: true
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StoredRecord'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /health:
+    get:
+      tags:
+      - System
+      summary: Health
+      operationId: health_health_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+                title: Response Health Health Get
+  /api/v1/sports:
+    get:
+      tags:
+      - System
+      summary: Sports Catalog
+      operationId: sports_catalog_api_v1_sports_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/SportCapability'
+                type: array
+                title: Response Sports Catalog Api V1 Sports Get
+components:
+  schemas:
+    HTTPValidationError:
+      properties:
+        detail:
+          items:
+            $ref: '#/components/schemas/ValidationError'
+          type: array
+          title: Detail
+      type: object
+      title: HTTPValidationError
+    RecordCreateRequest:
+      properties:
+        sport:
+          type: string
+          enum:
+          - football
+          - nba
+          - baseball
+          - tennis
+          title: Sport
+        date:
+          type: string
+          format: date
+          title: Date
+          description: Fecha del partido (YYYY-MM-DD).
+        league:
+          type: string
+          minLength: 1
+          title: League
+          description: 'Competición tal como la usa la API. Fútbol: Liga MX, Brasileirão Betano o Leagues
+            Cup. NBA: NBA, WNBA o NBA - Summer League. Béisbol: MLB o KBO. Tenis: ATP o WTA.'
+        event_id:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Event Id
+          description: Identificador del partido en su fuente. Obligatorio en fútbol, NBA y tenis. En
+            béisbol se calcula desde liga, fecha y equipos si no se envía.
+        home_team:
+          type: string
+          minLength: 1
+          title: Home Team
+          description: Local. En tenis, jugador uno.
+        away_team:
+          type: string
+          minLength: 1
+          title: Away Team
+          description: Visitante. En tenis, jugador dos.
+        pick:
+          type: string
+          enum:
+          - home
+          - draw
+          - away
+          title: Pick
+          description: 'Tu selección: home, draw o away. El empate solo existe en fútbol. En tenis, home
+            es el jugador uno y away el jugador dos.'
+        kickoff:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Kickoff
+          description: Inicio en ISO-8601 con offset. Si se omite, se usa la fecha a las 00:00 con offset
+            -06:00.
+        timezone:
+          type: string
+          title: Timezone
+          default: America/Mexico_City
+        probability:
+          anyOf:
+          - type: number
+            maximum: 100.0
+            minimum: 0.0
+          - type: 'null'
+          title: Probability
+          description: Probabilidad que le asignas a tu pick (0-100).
+        odds:
+          anyOf:
+          - type: number
+            exclusiveMinimum: 1.0
+          - type: 'null'
+          title: Odds
+          description: Cuota decimal del pick. Solo informativa.
+        stake:
+          anyOf:
+          - type: number
+            exclusiveMinimum: 0.0
+          - type: 'null'
+          title: Stake
+          description: Unidades apostadas. Solo informativa.
+        tournament:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Tournament
+          description: Torneo de tenis (Wimbledon, US Open...). Opcional.
+        home_team_id:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Home Team Id
+          description: Id del local o jugador uno en la fuente. Mejora la liquidación.
+        away_team_id:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Away Team Id
+          description: Id del visitante o jugador dos en la fuente.
+        markets:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Markets
+          description: Mercados adicionales con la forma que espera la liquidación. Si se omite, solo
+            se liquida el ganador.
+        notes:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Notes
+          description: Nota libre del analista.
+      type: object
+      required:
+      - sport
+      - date
+      - league
+      - home_team
+      - away_team
+      - pick
+      title: RecordCreateRequest
+      description: Datos que el analista envía para registrar un partido y su pick.
+    SportCapability:
+      properties:
+        sport:
+          type: string
+          title: Sport
+        provider_product:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Provider Product
+        supported:
+          type: boolean
+          title: Supported
+        endpoint:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Endpoint
+        model_version:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Model Version
+        limitation:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Limitation
+      type: object
+      required:
+      - sport
+      - provider_product
+      - supported
+      - endpoint
+      - model_version
+      title: SportCapability
+    StoredRecord:
+      properties:
+        document_id:
+          type: string
+          title: Document Id
+        sport:
+          type: string
+          title: Sport
+        event_id:
+          type: integer
+          title: Event Id
+        requested_date:
+          type: string
+          title: Requested Date
+        model_version:
+          type: string
+          title: Model Version
+        provider:
+          type: string
+          title: Provider
+        timezone:
+          type: string
+          title: Timezone
+        prediction:
+          additionalProperties: true
+          type: object
+          title: Prediction
+        generated_at:
+          type: string
+          format: date-time
+          title: Generated At
+        updated_at:
+          type: string
+          format: date-time
+          title: Updated At
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+        settlement:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Settlement
+      type: object
+      required:
+      - document_id
+      - sport
+      - event_id
+      - requested_date
+      - model_version
+      - provider
+      - timezone
+      - prediction
+      - generated_at
+      - updated_at
+      - created_at
+      title: StoredRecord
+      description: Documento guardado en MongoDB, tal como se devuelve al analista.
+    ValidationError:
+      properties:
+        loc:
+          items:
+            anyOf:
+            - type: string
+            - type: integer
+          type: array
+          title: Location
+        msg:
+          type: string
+          title: Message
+        type:
+          type: string
+          title: Error Type
+      type: object
+      required:
+      - loc
+      - msg
+      - type
+      title: ValidationError
+servers:
+- url: http://127.0.0.1:8000
+  description: Desarrollo local (uvicorn)
+- url: http://localhost:8000
+  description: Alias de loopback
+tags:
+- name: System
+  description: Salud del servicio y catálogo de deportes soportados.
+- name: Records
+  description: Registro manual de partidos y picks del analista.
