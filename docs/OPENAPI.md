@@ -1,7 +1,8 @@
 # Contrato OpenAPI
 
-La especificación se publica **separada por deporte** en [`openapi/`](../openapi/).
-No existe un archivo único con todas las rutas.
+La especificación se publica **separada por deporte** y con un contrato propio
+para prompts en [`openapi/`](../openapi/). No existe un archivo único con todas
+las rutas.
 
 | Archivo | Contenido | Rutas | Operaciones |
 | --- | --- | --- | --- |
@@ -10,8 +11,9 @@ No existe un archivo único con todas las rutas.
 | [`nba.yaml`](../openapi/nba.yaml) | `/api/v1/nba/*` | 2 | 2 |
 | [`baseball.yaml`](../openapi/baseball.yaml) | `/api/v1/baseball/*` | 5 | 5 |
 | [`tennis.yaml`](../openapi/tennis.yaml) | `/api/v1/tennis/*` | 3 | 3 |
+| [`prompts.yaml`](../openapi/prompts.yaml) | `/api/v1/prompts/*` | 2 | 3 |
 
-Total: 19 rutas y 21 operaciones, repartidas entre los cinco contratos.
+Total: 21 rutas y 24 operaciones, repartidas entre los seis contratos.
 
 El registro manual (`POST /api/v1/records`) se documenta en `system.yaml` porque
 es transversal a los cuatro deportes. Las seis rutas de pronósticos de fútbol
@@ -20,10 +22,12 @@ lote, listado, detalle y evaluaciones posteriores.
 
 ## Contenido de cada archivo
 
-- Versión OpenAPI 3.1.0 y versión de API 1.3.1.
+- Versión OpenAPI 3.1.0 y versión de API 1.4.0.
 - Servidores `http://127.0.0.1:8000` y `http://localhost:8000`; si defines
   `PUBLIC_BASE_URL`, se añade como servidor adicional.
 - Solo los `tags` del deporte correspondiente.
+- El contrato de prompts documenta `analysis`/`evaluation`, lectura de vigente,
+  lectura por `version_id`, historial y publicación con compare-and-set.
 - Bloque `components` recortado: únicamente los esquemas que esas rutas
   referencian, sin dependencias externas ni esquemas huérfanos.
 - Parámetros de query, cuerpos de petición, respuestas, ejemplos y headers de

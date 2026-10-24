@@ -145,6 +145,25 @@ persona sí puede aportar su propia evaluación.
 La evaluación no sustituye la liquidación oficial ni escribe en el documento
 del pronóstico.
 
+## Prompts versionados
+
+La colección independiente `prompts` (configurable con
+`MONGODB_PROMPTS_COLLECTION`) almacena una secuencia por `(sport, prompt_type)`.
+Los tipos son `analysis` y `evaluation`; los deportes aceptados son `football`,
+`nba`, `baseball` y `tennis`.
+
+Cada publicación crea un documento inmutable con `version`, `version_id`, texto,
+autor, resumen de cambios y referencia `supersedes_version_id`. No existe
+actualización destructiva. Índices únicos impiden versiones duplicadas y más de
+una revisión vigente. `base_version_id` es un compare-and-set: publicaciones
+basadas en una revisión obsoleta reciben `409`.
+
+Las rutas `GET /api/v1/prompts/{sport}/{prompt_type}` y
+`GET /api/v1/prompts/{sport}/{prompt_type}/versions` consultan la vigente y el
+historial. El `POST` al recurso crea la primera versión o publica la siguiente.
+La primera publicación debe enviar `base_version_id: null`; las siguientes,
+el `version_id` vigente exacto.
+
 ### Zonas horarias
 
 Todo se guarda en UTC. Al leer desde Mongo, el repositorio añade `UTC` a los

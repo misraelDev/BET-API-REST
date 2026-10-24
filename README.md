@@ -29,6 +29,11 @@ compara contra el inicio verificado y liquida 22 mercados por periodo. El
 catálogo y las reglas están en
 `GET /api/v1/football/predictions/markets`.
 
+Los prompts de análisis y evaluación se gestionan con historial inmutable en
+`/api/v1/prompts/{sport}/{prompt_type}`. Consulta
+[`docs/PROMPTS_API.md`](docs/PROMPTS_API.md) y los candidatos iniciales en
+[`promt/`](promt/).
+
 ## Inicio rápido
 
 ```powershell
@@ -80,3 +85,4 @@ Invoke-RestMethod http://127.0.0.1:8000/health
 | [Seguridad](docs/SEGURIDAD.md) | Credenciales, CORS, TLS y ausencia de autenticación. |
 | [Limitaciones](docs/LIMITACIONES.md) | Alcance de las fuentes públicas y del registro manual. |
 | [OpenAPI](docs/OPENAPI.md) | Contratos por deporte en `openapi/`, visores y regeneración. |
+| [API de prompts](docs/PROMPTS_API.md) | Publicación y consulta de prompts versionados por deporte. |

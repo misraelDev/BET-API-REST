@@ -8,6 +8,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import get_settings
 from app.database.repository import PredictionRepository
+from app.prompts.repository import PromptRepository
+from app.prompts.router import router as prompts_router
 from app.records.models import MANUAL_MODEL_VERSION
 from app.records.router import router as records_router
 from app.records.service import ManualRecordService
@@ -110,6 +112,13 @@ async def lifespan(app: FastAPI):
         required=settings.mongodb_required,
     )
     await football_predictions_repository.connect()
+    prompt_repository = PromptRepository(
+        uri=settings.mongodb_uri,
+        database=settings.mongodb_database,
+        collection=settings.mongodb_prompts_collection,
+        required=settings.mongodb_required,
+    )
+    await prompt_repository.connect()
     espn_football_results = EspnFootballResultsClient(
         timeout_seconds=settings.request_timeout_seconds
     )
@@ -144,6 +153,7 @@ async def lifespan(app: FastAPI):
     app.state.tennis_service = TennisPredictionService(tennis_client)
     app.state.prediction_repository = repository
     app.state.football_prediction_repository = football_predictions_repository
+    app.state.prompt_repository = prompt_repository
     app.state.football_prediction_service = football_prediction_service
     app.state.espn_football_results = espn_football_results
     app.state.record_service = ManualRecordService(repository)
@@ -170,6 +180,7 @@ async def lifespan(app: FastAPI):
     await tennis_client.close()
     await app.state.prediction_repository.close()
     await app.state.football_prediction_repository.close()
+    await app.state.prompt_repository.close()
     await app.state.espn_football_results.close()
 
 
@@ -190,7 +201,7 @@ async def _run_baseball_settlement_loop(
 
 app = FastAPI(
     title="BET Analytics API",
-    version="1.3.1",
+    version="1.4.0",
     description=(
         "Registro, consulta y liquidación de predicciones deportivas. "
         "El registro es manual: la API ya no calcula probabilidades."
@@ -216,6 +227,7 @@ app.add_middleware(
 app.include_router(records_router)
 app.include_router(football_router)
 app.include_router(football_predictions_router)
+app.include_router(prompts_router)
 app.include_router(nba_router)
 app.include_router(baseball_router)
 app.include_router(tennis_router)

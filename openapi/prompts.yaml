@@ -1,0 +1,322 @@
+openapi: 3.1.0
+info:
+  title: BET Analytics API - Prompts
+  description: Contrato OpenAPI de prompts de analistas. Incluye solo las rutas `/api/v1/prompts` y los
+    esquemas que esas rutas referencian. El resto de deportes está en archivos separados dentro de `openapi/`.
+  version: 1.4.0
+  contact:
+    name: BET Analytics
+  license:
+    name: Privado
+paths:
+  /api/v1/prompts/{sport}/{prompt_type}:
+    get:
+      tags:
+      - Prompts
+      summary: Consulta el prompt vigente o una versión exacta
+      description: Sin version ni version_id devuelve la versión vigente. Usa uno de esos parámetros para
+        recuperar una revisión histórica exacta. Las versiones son inmutables.
+      operationId: get_prompt_api_v1_prompts__sport___prompt_type__get
+      parameters:
+      - name: sport
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/PromptSport'
+      - name: prompt_type
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/PromptType'
+      - name: version
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: integer
+            minimum: 1
+          - type: 'null'
+          title: Version
+      - name: version_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            pattern: ^[A-Fa-f0-9]{32}$
+          - type: 'null'
+          title: Version Id
+      responses:
+        '200':
+          description: Prompt y metadatos de su versión.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Prompt'
+              example:
+                document_id: 665b9c6ab78c014ef4d1ab22
+                sport: football
+                prompt_type: analysis
+                version: 2
+                version_id: 9a1c2e3f4b5d6a7c8e9f0a1b2c3d4e5f
+                is_current: true
+                supersedes_version_id: 1f2e3d4c5b6a79880716253443526170
+                prompt: Analiza la jornada con evidencia verificable...
+                author: ana.garcia
+                change_summary: Agregar consulta de pronósticos previos.
+                created_at: '2026-10-24T20:00:00Z'
+        '503':
+          description: Persistencia de prompts no disponible.
+        '404':
+          description: No existe ese prompt o versión.
+        '422':
+          description: Parámetros incompatibles o inválidos.
+    post:
+      tags:
+      - Prompts
+      summary: Publica una nueva versión inmutable del prompt
+      description: 'Cada publicación crea una versión nueva; no hay edición in-place. base_version_id
+        debe coincidir con la versión vigente; usa null solo para el primer registro. Este endpoint no
+        tiene autenticación: protégelo con controles de acceso del proxy/red antes de habilitar escrituras
+        públicas.'
+      operationId: publish_prompt_api_v1_prompts__sport___prompt_type__post
+      parameters:
+      - name: sport
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/PromptSport'
+      - name: prompt_type
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/PromptType'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PromptCreate'
+      responses:
+        '201':
+          description: Nueva versión registrada.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Prompt'
+        '503':
+          description: Persistencia de prompts no disponible.
+        '409':
+          description: La versión base está desactualizada o hubo una carrera.
+        '422':
+          description: Prompt o base_version_id inválido.
+  /api/v1/prompts/{sport}/{prompt_type}/versions:
+    get:
+      tags:
+      - Prompts
+      summary: Consulta el historial inmutable del prompt
+      operationId: list_prompt_versions_api_v1_prompts__sport___prompt_type__versions_get
+      parameters:
+      - name: sport
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/PromptSport'
+      - name: prompt_type
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/PromptType'
+      responses:
+        '200':
+          description: Historial ascendente de versiones.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PromptVersionListResponse'
+        '503':
+          description: Persistencia de prompts no disponible.
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+components:
+  schemas:
+    HTTPValidationError:
+      properties:
+        detail:
+          items:
+            $ref: '#/components/schemas/ValidationError'
+          type: array
+          title: Detail
+      type: object
+      title: HTTPValidationError
+    Prompt:
+      properties:
+        document_id:
+          type: string
+          title: Document Id
+        sport:
+          $ref: '#/components/schemas/PromptSport'
+        prompt_type:
+          $ref: '#/components/schemas/PromptType'
+        version:
+          type: integer
+          minimum: 1.0
+          title: Version
+        version_id:
+          type: string
+          pattern: ^[A-Fa-f0-9]{32}$
+          title: Version Id
+        is_current:
+          type: boolean
+          title: Is Current
+        supersedes_version_id:
+          anyOf:
+          - type: string
+            pattern: ^[A-Fa-f0-9]{32}$
+          - type: 'null'
+          title: Supersedes Version Id
+        prompt:
+          type: string
+          title: Prompt
+        author:
+          type: string
+          title: Author
+        change_summary:
+          type: string
+          title: Change Summary
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+        updated_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Updated At
+      additionalProperties: false
+      type: object
+      required:
+      - document_id
+      - sport
+      - prompt_type
+      - version
+      - version_id
+      - is_current
+      - prompt
+      - author
+      - change_summary
+      - created_at
+      title: Prompt
+      description: Stored immutable prompt revision returned by the prompt API.
+    PromptCreate:
+      properties:
+        base_version_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Base Version Id
+          description: Exact current version being revised. Send null only when creating the first version;
+            required to prevent stale concurrent updates.
+          examples:
+          - 9a1c2e3f4b5d6a7c8e9f0a1b2c3d4e5f
+        prompt:
+          type: string
+          maxLength: 100000
+          minLength: 1
+          title: Prompt
+        author:
+          type: string
+          maxLength: 120
+          minLength: 1
+          title: Author
+        change_summary:
+          type: string
+          maxLength: 1000
+          minLength: 1
+          title: Change Summary
+      additionalProperties: false
+      type: object
+      required:
+      - base_version_id
+      - prompt
+      - author
+      - change_summary
+      title: PromptCreate
+      description: Publish a new immutable prompt revision, based on an exact revision.
+    PromptSport:
+      type: string
+      enum:
+      - football
+      - nba
+      - baseball
+      - tennis
+      title: PromptSport
+    PromptType:
+      type: string
+      enum:
+      - analysis
+      - evaluation
+      title: PromptType
+    PromptVersionListResponse:
+      properties:
+        sport:
+          $ref: '#/components/schemas/PromptSport'
+        prompt_type:
+          $ref: '#/components/schemas/PromptType'
+        total:
+          type: integer
+          minimum: 0.0
+          title: Total
+        current_version:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Current Version
+        items:
+          items:
+            $ref: '#/components/schemas/Prompt'
+          type: array
+          title: Items
+      type: object
+      required:
+      - sport
+      - prompt_type
+      - total
+      - items
+      title: PromptVersionListResponse
+    ValidationError:
+      properties:
+        loc:
+          items:
+            anyOf:
+            - type: string
+            - type: integer
+          type: array
+          title: Location
+        msg:
+          type: string
+          title: Message
+        type:
+          type: string
+          title: Error Type
+      type: object
+      required:
+      - loc
+      - msg
+      - type
+      title: ValidationError
+servers:
+- url: http://127.0.0.1:8000
+  description: Desarrollo local (uvicorn)
+- url: http://localhost:8000
+  description: Alias de loopback
+- url: https://start-bet-api-rest.xzpbpr.easypanel.host
+  description: API desplegada
+tags:
+- name: Prompts
+  description: Prompts de análisis y evaluación versionados por deporte.

@@ -34,6 +34,7 @@ MONGODB_REQUIRED=false
 | `MONGODB_COLLECTION` | Colección del registro manual (nombre heredado `predictions`). |
 | `MONGODB_FOOTBALL_PREDICTIONS_COLLECTION` | Pronósticos de fútbol versionados. Por defecto `football_predictions`. |
 | `MONGODB_FOOTBALL_EVALUATIONS_COLLECTION` | Evaluaciones posteriores del analista. Por defecto `football_prediction_evaluations`. |
+| `MONGODB_PROMPTS_COLLECTION` | Historial independiente de prompts por deporte y tipo. Por defecto `prompts`. |
 | `MONGODB_REQUIRED` | Si es `true`, la aplicación no inicia cuando MongoDB no responde. |
 
 Las credenciales se leen solo en el backend. No las expongas en el frontend ni

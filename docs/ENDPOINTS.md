@@ -5,8 +5,9 @@ Base URL local: `http://127.0.0.1:8000`. Todos los cuerpos y respuestas usan
 
 La API **no genera predicciones**. El registro es manual y se hace con
 `POST /api/v1/records` (un pick simple) o, en fútbol, con
-`POST /api/v1/football/predictions` (lote versionado de selecciones). El resto
-de rutas consulta y liquida lo registrado.
+`POST /api/v1/football/predictions` (lote versionado de selecciones). Además,
+`/api/v1/prompts` administra prompts versionados de análisis y evaluación para
+los cuatro deportes.
 
 ## Sistema
 
@@ -58,7 +59,7 @@ con `event_id`, `stage` y `message`.
 | POST | `/api/v1/football/predictions` | — | `{ "items": [ ... ] }` (1–100 selecciones) |
 | GET | `/api/v1/football/predictions` | ver tabla de filtros | — |
 | GET | `/api/v1/football/predictions/{prediction_id}` | — | — |
-| POST | `/api/v1/football/predictions/{prediction_id}/evaluations` | — | `analyst`, `diagnosis`, `learnings`, `sources`; opcionales `version`, `outcome_comment`, `tags` |
+| POST | `/api/v1/football/predictions/{prediction_id}/evaluations` | — | `version_id`, `analyst`, `diagnosis`, `learnings`, `sources`; opcionales `outcome_comment`, `tags` |
 | GET | `/api/v1/football/predictions/{prediction_id}/evaluations` | `page`, `page_size` | — |
 
 Filtros de `GET /api/v1/football/predictions`:
@@ -117,6 +118,22 @@ Ligas: `mlb`, `kbo`, `all`. Valor por defecto en `official-results`: `mlb`.
 | POST | `/api/v1/tennis/results/update` | — | `{ "date", "tour" }` |
 
 Circuitos: `atp`, `wta`, `all`.
+
+## Prompts de analistas
+
+| Método | Ruta | Parámetros/cuerpo | Descripción |
+| --- | --- | --- | --- |
+| GET | `/api/v1/prompts/{sport}/{prompt_type}` | Query opcional `version` o `version_id` | Vigente por defecto o revisión exacta. |
+| GET | `/api/v1/prompts/{sport}/{prompt_type}/versions` | — | Historial inmutable, ascendente. |
+| POST | `/api/v1/prompts/{sport}/{prompt_type}` | `base_version_id`, `prompt`, `author`, `change_summary` | Publica una nueva versión; no sobrescribe. |
+
+`sport`: `football`, `nba`, `baseball` o `tennis`. `prompt_type`: `analysis` o
+`evaluation`. Para la primera publicación, `base_version_id` debe ser `null`;
+para una mejora, usa el `version_id` actualmente vigente. Una base obsoleta
+responde `409`. El endpoint no tiene autenticación: restríngele el acceso de
+escritura desde la red o el proxy.
+
+Más detalle: [API de prompts para analistas](PROMPTS_API.md).
 
 ## Parámetros comunes
 

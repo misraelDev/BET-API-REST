@@ -25,6 +25,11 @@ públicas que se describen abajo.
 
 ## Flujo de trabajo
 
+Los prompts operativos se consultan en `/api/v1/prompts/{sport}/{prompt_type}`.
+Usa `analysis` para un análisis nuevo y `evaluation` para revisar pronósticos.
+Sin parámetros se obtiene la revisión vigente; para una ejecución reproducible
+usa `version_id` explícito. La biblioteca local está en [`promt/`](../promt/).
+
 ### Registro simple (cualquier deporte)
 
 1. Busca el partido en la fuente del deporte y anota su `event_id`.

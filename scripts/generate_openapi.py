@@ -37,6 +37,7 @@ TAGS = {
     "NBA": "Resultados y liquidación de básquetbol (NBA).",
     "Baseball": "Estadísticas, resultados y liquidación de béisbol (MLB/KBO).",
     "Tennis": "Conteo de partidos, resultados y liquidación de tenis (ATP/WTA).",
+    "Prompts": "Prompts de análisis y evaluación versionados por deporte.",
 }
 
 TARGETS: list[dict[str, Any]] = [
@@ -75,6 +76,18 @@ TARGETS: list[dict[str, Any]] = [
         "title": "BET Analytics API - Tenis",
         "sport": "tenis (ATP/WTA)",
         "prefixes": ["/api/v1/tennis"],
+    },
+    {
+        "file": "prompts.yaml",
+        "title": "BET Analytics API - Prompts",
+        "sport": "prompts de analistas",
+        "prefixes": ["/api/v1/prompts"],
+        "extra_servers": [
+            {
+                "url": "https://start-bet-api-rest.xzpbpr.easypanel.host",
+                "description": "API desplegada",
+            }
+        ],
     },
 ]
 

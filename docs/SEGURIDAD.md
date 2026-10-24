@@ -15,6 +15,10 @@
 - Los endpoints de pronósticos de fútbol (`/api/v1/football/predictions`)
   tampoco piden credenciales. Cualquiera con acceso a la API puede registrar,
   versionar o evaluar selecciones.
+- El `POST /api/v1/prompts/{sport}/{prompt_type}` tampoco tiene autenticación:
+  cualquier cliente que alcance la API puede publicar una nueva versión
+  vigente. El compare-and-set evita pisar revisiones concurrentes, pero no
+  reemplaza autorización; limita el acceso desde el proxy o la red.
 
 ## Publicación con HTTPS
 
