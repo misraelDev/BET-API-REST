@@ -19,11 +19,38 @@ from app.sports.football.predictions.repository import RepositoryConflict
 from app.sports.football.predictions.service import (
     FootballPredictionService,
     PredictionNotFound,
+    PromptVersionNotFound,
     VersionNotFound,
 )
 
 RECEIVED_AT = datetime(2026, 10, 24, 17, 0, tzinfo=UTC)
 KICKOFF = datetime(2026, 10, 25, 2, 0, tzinfo=UTC)  # 2026-10-24 20:00 CDMX
+ANALYSIS_PROMPT_VERSION_ID = "a" * 32
+EVALUATION_PROMPT_VERSION_ID = "b" * 32
+
+
+class FakePromptRepository:
+    def __init__(self):
+        self.versions = {
+            ("football", "analysis", ANALYSIS_PROMPT_VERSION_ID): 1,
+            ("football", "analysis", "c" * 32): 2,
+            ("football", "evaluation", EVALUATION_PROMPT_VERSION_ID): 1,
+            ("nba", "analysis", ANALYSIS_PROMPT_VERSION_ID): 1,
+            ("baseball", "analysis", ANALYSIS_PROMPT_VERSION_ID): 1,
+            ("tennis", "analysis", ANALYSIS_PROMPT_VERSION_ID): 1,
+        }
+
+    async def get_version_by_id(self, sport, prompt_type, version_id):
+        version = self.versions.get((sport, prompt_type, version_id))
+        if version is None:
+            return None
+        return {
+            "prompt_id": f"{sport}.{prompt_type}",
+            "sport": sport,
+            "prompt_type": prompt_type,
+            "version": version,
+            "version_id": version_id,
+        }
 
 
 def _get(document, path):
@@ -213,13 +240,17 @@ def payload(**overrides):
     return FootballPredictionCreate(**data)
 
 
-def batch(*items):
-    return FootballPredictionBatchRequest(items=list(items))
+def batch(*items, analysis_prompt_version_id=ANALYSIS_PROMPT_VERSION_ID):
+    return FootballPredictionBatchRequest(
+        items=list(items),
+        analysis_prompt_version_id=analysis_prompt_version_id,
+    )
 
 
 def service(repository, **overrides):
     options = {
         "kickoff_resolver": FakeKickoffResolver({736644: KICKOFF}),
+        "prompt_repository": FakePromptRepository(),
         "clock": lambda: RECEIVED_AT,
     }
     options.update(overrides)
@@ -267,6 +298,46 @@ async def test_registers_each_selection_of_the_batch():
     assert len({item.prediction_id for item in result.items}) == 2
     assert all(item.version == 1 for item in result.items)
     assert len(repository.documents) == 2
+    assert repository.documents[0]["analysis_prompt"] == {
+        "prompt_id": "football.analysis",
+        "version": 1,
+        "version_id": ANALYSIS_PROMPT_VERSION_ID,
+    }
+    assert repository.documents[0]["method_version"] == "analista-v1"
+
+
+@pytest.mark.asyncio
+async def test_registration_rejects_unknown_analysis_prompt_reference():
+    repository = FakeRepository()
+    with pytest.raises(PromptVersionNotFound):
+        await service(repository).register_batch(
+            FootballPredictionBatchRequest(
+                analysis_prompt_version_id="f" * 32,
+                items=[payload()],
+            )
+        )
+    assert repository.documents == []
+
+
+@pytest.mark.asyncio
+async def test_new_prompt_revision_does_not_change_old_prediction_reference():
+    repository = FakeRepository()
+    prompts = FakePromptRepository()
+    subject = service(repository, prompt_repository=prompts)
+    await subject.register_batch(batch(payload(prediction_id="pred00001")))
+    prompts.versions[("football", "analysis", "d" * 32)] = 3
+    await subject.register_batch(
+        batch(
+            payload(
+                prediction_id="pred00002",
+                idempotency_key="test-key-0002",
+            ),
+            analysis_prompt_version_id="d" * 32,
+        )
+    )
+    assert repository.documents[0]["analysis_prompt"]["version_id"] == ANALYSIS_PROMPT_VERSION_ID
+    assert repository.documents[0]["analysis_prompt"]["version"] == 1
+    assert repository.documents[1]["analysis_prompt"]["version"] == 3
 
 
 @pytest.mark.asyncio
@@ -608,6 +679,7 @@ async def test_detail_unknown_id_raises():
 def evaluation(**overrides):
     data = {
         "analyst": "ana.garcia",
+        "evaluation_prompt_version_id": EVALUATION_PROMPT_VERSION_ID,
         "diagnosis": "El local dominó el primer tiempo y lo liquidó al final.",
         "learnings": ["El descanso no cambió el guion del partido."],
         "sources": [PredictionSource(name="ESPN")],
@@ -628,6 +700,9 @@ async def test_evaluation_is_linked_to_current_version_and_is_unique():
     )
     assert stored.version == 1
     assert stored.prediction_id == "abcdefgh"
+    assert stored.evaluation_prompt.prompt_id == "football.evaluation"
+    assert stored.evaluation_prompt.version == 1
+    assert stored.evaluation_prompt.version_id == EVALUATION_PROMPT_VERSION_ID
 
     with pytest.raises(RepositoryConflict):
         await subject.add_evaluation(
@@ -665,6 +740,22 @@ async def test_evaluation_can_target_an_explicit_version():
         await subject.add_evaluation(
             "abcdefgh", evaluation(version_id="0" * 32)
         )
+
+
+@pytest.mark.asyncio
+async def test_evaluation_rejects_unknown_prompt_version():
+    repository = FakeRepository()
+    subject = service(repository)
+    await subject.register_batch(batch(payload(prediction_id="abcdefgh")))
+    with pytest.raises(PromptVersionNotFound):
+        await subject.add_evaluation(
+            "abcdefgh",
+            evaluation(
+                version_id=repository.documents[0]["version_id"],
+                evaluation_prompt_version_id="f" * 32,
+            ),
+        )
+    assert repository.evaluations == []
 
 
 @pytest.mark.asyncio

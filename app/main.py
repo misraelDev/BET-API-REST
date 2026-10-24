@@ -131,6 +131,7 @@ async def lifespan(app: FastAPI):
         ),
         observation_provider=espn_football_results,
         kickoff_timeout_seconds=settings.football_kickoff_timeout_seconds,
+        prompt_repository=prompt_repository,
     )
     baseball_settlement = BaseballSettlementService(
         schedule_client=baseball_schedule_client,
@@ -156,7 +157,7 @@ async def lifespan(app: FastAPI):
     app.state.prompt_repository = prompt_repository
     app.state.football_prediction_service = football_prediction_service
     app.state.espn_football_results = espn_football_results
-    app.state.record_service = ManualRecordService(repository)
+    app.state.record_service = ManualRecordService(repository, prompt_repository)
     settlement_task = None
     if settings.baseball_settlement_enabled:
         settlement_task = asyncio.create_task(
@@ -201,7 +202,7 @@ async def _run_baseball_settlement_loop(
 
 app = FastAPI(
     title="BET Analytics API",
-    version="1.4.0",
+    version="1.5.0",
     description=(
         "Registro, consulta y liquidación de predicciones deportivas. "
         "El registro es manual: la API ya no calcula probabilidades."

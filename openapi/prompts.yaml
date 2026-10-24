@@ -3,7 +3,7 @@ info:
   title: BET Analytics API - Prompts
   description: Contrato OpenAPI de prompts de analistas. Incluye solo las rutas `/api/v1/prompts` y los
     esquemas que esas rutas referencian. El resto de deportes está en archivos separados dentro de `openapi/`.
-  version: 1.4.0
+  version: 1.5.0
   contact:
     name: BET Analytics
   license:
@@ -55,6 +55,7 @@ paths:
                 $ref: '#/components/schemas/Prompt'
               example:
                 document_id: 665b9c6ab78c014ef4d1ab22
+                prompt_id: football.analysis
                 sport: football
                 prompt_type: analysis
                 version: 2
@@ -158,6 +159,9 @@ components:
         document_id:
           type: string
           title: Document Id
+        prompt_id:
+          type: string
+          title: Prompt Id
         sport:
           $ref: '#/components/schemas/PromptSport'
         prompt_type:
@@ -202,6 +206,7 @@ components:
       type: object
       required:
       - document_id
+      - prompt_id
       - sport
       - prompt_type
       - version

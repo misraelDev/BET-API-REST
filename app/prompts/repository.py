@@ -9,6 +9,7 @@ from typing import Any
 from pymongo import ASCENDING, DESCENDING, AsyncMongoClient
 from pymongo.errors import DuplicateKeyError, PyMongoError
 
+from app.prompts.models import make_prompt_id
 from app.sports.football.predictions.repository import RepositoryConflict
 
 logger = logging.getLogger(__name__)
@@ -17,6 +18,9 @@ logger = logging.getLogger(__name__)
 def prepare_prompt(document: dict[str, Any]) -> dict[str, Any]:
     result = dict(document)
     result["document_id"] = str(result.pop("_id"))
+    result.setdefault(
+        "prompt_id", make_prompt_id(result["sport"], result["prompt_type"])
+    )
     for field in ("created_at", "updated_at"):
         value = result.get(field)
         if isinstance(value, datetime):

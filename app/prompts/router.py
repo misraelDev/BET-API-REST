@@ -48,6 +48,7 @@ def _service(request: Request) -> PromptService:
                 "application/json": {
                     "example": {
                         "document_id": "665b9c6ab78c014ef4d1ab22",
+                        "prompt_id": "football.analysis",
                         "sport": "football",
                         "prompt_type": "analysis",
                         "version": 2,

@@ -77,6 +77,7 @@ class PromptService:
         document: dict[str, Any] = {
             "sport": sport.value,
             "prompt_type": prompt_type.value,
+            "prompt_id": f"{sport.value}.{prompt_type.value}",
             "version": int(previous["version"]) + 1 if previous else 1,
             "version_id": uuid.uuid4().hex,
             "is_current": True,

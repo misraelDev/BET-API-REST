@@ -4,6 +4,8 @@ from datetime import UTC, datetime, time, timedelta, timezone
 from typing import Any
 
 from app.database.repository import PredictionRepository
+from app.prompts.models import PromptReference, PromptType
+from app.prompts.repository import PromptRepository
 from app.records.models import (
     MANUAL_MODEL_VERSION,
     RecordCreateRequest,
@@ -247,10 +249,31 @@ def build_document(
 
 
 class ManualRecordService:
-    def __init__(self, repository: PredictionRepository) -> None:
+    def __init__(
+        self,
+        repository: PredictionRepository,
+        prompt_repository: PromptRepository | None = None,
+    ) -> None:
         self._repository = repository
+        self._prompt_repository = prompt_repository
 
     async def register(self, payload: RecordCreateRequest) -> StoredRecord:
+        if self._prompt_repository is None:
+            raise RuntimeError("Repositorio de prompts no configurado.")
+        prompt = await self._prompt_repository.get_version_by_id(
+            payload.sport,
+            PromptType.ANALYSIS.value,
+            payload.analysis_prompt_version_id,
+        )
+        if prompt is None:
+            raise ValueError(
+                "analysis_prompt_version_id no existe para el deporte y tipo analysis."
+            )
         identity, document = build_document(payload)
+        document["analysis_prompt"] = PromptReference(
+            prompt_id=prompt.get("prompt_id", f"{payload.sport}.analysis"),
+            version=int(prompt["version"]),
+            version_id=prompt["version_id"],
+        ).model_dump(mode="json")
         stored = await self._repository.upsert_record(identity, document)
         return StoredRecord(**stored)

@@ -4,7 +4,7 @@ info:
   description: Contrato OpenAPI de sistema. Incluye solo las rutas `/health`, `/api/v1/sports`, `/api/v1/records`
     y los esquemas que esas rutas referencian. El resto de deportes está en archivos separados dentro
     de `openapi/`.
-  version: 1.4.0
+  version: 1.5.0
   contact:
     name: BET Analytics
   license:
@@ -78,6 +78,29 @@ components:
           title: Detail
       type: object
       title: HTTPValidationError
+    PromptReference:
+      properties:
+        prompt_id:
+          type: string
+          title: Prompt Id
+          description: Identidad lógica estable del prompt.
+        version:
+          type: integer
+          minimum: 1.0
+          title: Version
+          description: Revisión humana exacta.
+        version_id:
+          type: string
+          pattern: ^[A-Fa-f0-9]{32}$
+          title: Version Id
+          description: Identificador inmutable de la revisión exacta.
+      type: object
+      required:
+      - prompt_id
+      - version
+      - version_id
+      title: PromptReference
+      description: Immutable reference to one exact prompt revision.
     RecordCreateRequest:
       properties:
         sport:
@@ -125,6 +148,12 @@ components:
           title: Pick
           description: 'Tu selección: home, draw o away. El empate solo existe en fútbol. En tenis, home
             es el jugador uno y away el jugador dos.'
+        analysis_prompt_version_id:
+          type: string
+          pattern: ^[A-Fa-f0-9]{32}$
+          title: Analysis Prompt Version Id
+          description: version_id exacto del prompt de análisis usado en esta ejecución. No sustituye
+            a model_version ni a method_version.
         kickoff:
           anyOf:
           - type: string
@@ -199,6 +228,7 @@ components:
       - home_team
       - away_team
       - pick
+      - analysis_prompt_version_id
       title: RecordCreateRequest
       description: Datos que el analista envía para registrar un partido y su pick.
     SportCapability:
@@ -264,6 +294,12 @@ components:
           additionalProperties: true
           type: object
           title: Prediction
+        analysis_prompt:
+          anyOf:
+          - $ref: '#/components/schemas/PromptReference'
+          - type: 'null'
+          description: Referencia exacta al prompt. Ausente en registros históricos cuyo prompt usado
+            no se puede comprobar.
         generated_at:
           type: string
           format: date-time

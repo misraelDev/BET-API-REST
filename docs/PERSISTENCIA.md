@@ -164,6 +164,15 @@ historial. El `POST` al recurso crea la primera versión o publica la siguiente.
 La primera publicación debe enviar `base_version_id: null`; las siguientes,
 el `version_id` vigente exacto.
 
+Los pronósticos y registros manuales nuevos guardan una referencia
+`analysis_prompt` (`prompt_id`, `version`, `version_id`); las evaluaciones nuevas
+guardan `evaluation_prompt` con la misma forma. La API exige el identificador
+exacto y verifica que pertenezca al deporte y tipo correctos antes de insertar.
+La referencia se copia al documento de registro y no apunta a “la versión
+actual”, por lo que futuras publicaciones no cambian ese vínculo. Los documentos
+anteriores sin evidencia permanecen sin referencia. `method_version` y
+`model_version` se conservan como metadatos separados.
+
 ### Zonas horarias
 
 Todo se guarda en UTC. Al leer desde Mongo, el repositorio añade `UTC` a los

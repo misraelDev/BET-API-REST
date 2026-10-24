@@ -9,8 +9,9 @@ import logging
 import uuid
 from collections import defaultdict
 from datetime import UTC, date, datetime, timedelta, timezone
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
+from app.prompts.models import PromptReference, PromptSport, PromptType
 from app.sports.football.predictions.catalog import (
     FootballLeague,
     KickoffSource,
@@ -39,6 +40,9 @@ from app.sports.football.predictions.repository import (
 )
 from app.sports.football.predictions.settlement import settle_prediction
 
+if TYPE_CHECKING:
+    from app.prompts.repository import PromptRepository
+
 logger = logging.getLogger(__name__)
 
 CDMX = timezone(timedelta(hours=-6))
@@ -64,6 +68,10 @@ class VersionNotFound(LookupError):
     pass
 
 
+class PromptVersionNotFound(LookupError):
+    pass
+
+
 class KickoffResolver(Protocol):
     async def resolve_many(
         self, requests: list[tuple[int, str]]
@@ -86,12 +94,15 @@ def _canonical(value: Any) -> str:
     )
 
 
-def _request_hash(item: FootballPredictionCreate) -> str:
+def _request_hash(
+    item: FootballPredictionCreate, analysis_prompt: PromptReference
+) -> str:
     payload = item.model_dump(
         mode="json",
         exclude={"idempotency_key"},
         exclude_none=True,
     )
+    payload["analysis_prompt"] = analysis_prompt.model_dump(mode="json")
     return hashlib.sha256(_canonical(payload).encode("utf-8")).hexdigest()
 
 
@@ -146,18 +157,36 @@ class FootballPredictionService:
         kickoff_resolver: KickoffResolver | None = None,
         observation_provider: ObservationProvider | None = None,
         kickoff_timeout_seconds: float = 8.0,
+        prompt_repository: PromptRepository | None = None,
         clock: Any = None,
     ) -> None:
         self._repository = repository
         self._kickoff_resolver = kickoff_resolver
         self._observation_provider = observation_provider
         self._kickoff_timeout_seconds = kickoff_timeout_seconds
+        self._prompt_repository = prompt_repository
         self._clock = clock or (lambda: datetime.now(UTC))
 
     async def register_batch(
         self, payload: FootballPredictionBatchRequest
     ) -> FootballPredictionBatchResponse:
         received_at = _utc(self._clock())
+        if self._prompt_repository is None:
+            raise RuntimeError("Repositorio de prompts no configurado.")
+        prompt_document = await self._prompt_repository.get_version_by_id(
+            PromptSport.FOOTBALL.value,
+            PromptType.ANALYSIS.value,
+            payload.analysis_prompt_version_id,
+        )
+        if prompt_document is None:
+            raise PromptVersionNotFound(
+                "analysis_prompt_version_id no existe para football/analysis."
+            )
+        analysis_prompt = PromptReference(
+            prompt_id=prompt_document.get("prompt_id", "football.analysis"),
+            version=int(prompt_document["version"]),
+            version_id=prompt_document["version_id"],
+        )
         resolved: dict[int, datetime] = {}
         if self._kickoff_resolver is not None:
             requests: list[tuple[int, str]] = []
@@ -181,7 +210,9 @@ class FootballPredictionService:
         results: list[FootballPredictionBatchItemResult] = []
         for item in payload.items:
             try:
-                result = await self._register_item(item, received_at, resolved)
+                result = await self._register_item(
+                    item, received_at, resolved, analysis_prompt
+                )
             except RepositoryConflict as exc:
                 result = self._rejected(item, str(exc))
             except RuntimeError:
@@ -215,8 +246,9 @@ class FootballPredictionService:
         item: FootballPredictionCreate,
         received_at: datetime,
         resolved: dict[int, datetime],
+        analysis_prompt: PromptReference,
     ) -> FootballPredictionBatchItemResult:
-        request_hash = _request_hash(item)
+        request_hash = _request_hash(item, analysis_prompt)
         existing = await self._repository.find_by_idempotency_key(
             item.idempotency_key
         )
@@ -259,6 +291,7 @@ class FootballPredictionService:
             request_hash=request_hash,
             previous=previous,
             provider_kickoff=resolved.get(item.event_id),
+            analysis_prompt=analysis_prompt,
         )
         try:
             stored = await self._repository.insert_version(document, previous)
@@ -289,6 +322,7 @@ class FootballPredictionService:
         request_hash: str,
         previous: dict[str, Any] | None,
         provider_kickoff: datetime | None,
+        analysis_prompt: PromptReference,
     ) -> dict[str, Any]:
         info = league_info(item.league)
         kickoff_verified = provider_kickoff is not None
@@ -368,6 +402,7 @@ class FootballPredictionService:
             ],
             "analyst": item.analyst,
             "method_version": item.method_version,
+            "analysis_prompt": analysis_prompt.model_dump(mode="json"),
             "generated_at": (
                 _utc(item.generated_at) if item.generated_at else None
             ),
@@ -563,11 +598,30 @@ class FootballPredictionService:
             raise VersionNotFound(
                 f"{prediction_id} version_id {payload.version_id}"
             )
+        if self._prompt_repository is None:
+            raise RuntimeError("Repositorio de prompts no configurado.")
+        evaluation_prompt_document = await self._prompt_repository.get_version_by_id(
+            PromptSport.FOOTBALL.value,
+            PromptType.EVALUATION.value,
+            payload.evaluation_prompt_version_id,
+        )
+        if evaluation_prompt_document is None:
+            raise PromptVersionNotFound(
+                "evaluation_prompt_version_id no existe para football/evaluation."
+            )
+        evaluation_prompt = PromptReference(
+            prompt_id=evaluation_prompt_document.get(
+                "prompt_id", "football.evaluation"
+            ),
+            version=int(evaluation_prompt_document["version"]),
+            version_id=evaluation_prompt_document["version_id"],
+        )
         now = _utc(self._clock())
         document = {
             "prediction_id": prediction_id,
             "version": int(target["version"]),
             "version_id": target["version_id"],
+            "evaluation_prompt": evaluation_prompt.model_dump(mode="json"),
             "analyst": payload.analyst,
             "diagnosis": payload.diagnosis,
             "learnings": payload.learnings,

@@ -24,6 +24,7 @@ def football_payload(**overrides):
         "home_team": "América",
         "away_team": "Cruz Azul",
         "pick": "home",
+        "analysis_prompt_version_id": "a" * 32,
         "probability": 54.0,
         "odds": 1.85,
         "stake": 2.0,
@@ -61,6 +62,7 @@ def test_tennis_document_uses_tour_as_league():
         home_team="Sinner",
         away_team="Alcaraz",
         pick="away",
+        analysis_prompt_version_id="a" * 32,
         tournament="Wimbledon",
     )
 
@@ -106,6 +108,7 @@ def test_draw_is_football_only():
             home_team="Lakers",
             away_team="Celtics",
             pick="draw",
+            analysis_prompt_version_id="a" * 32,
         )
 
 
@@ -118,6 +121,7 @@ def test_event_id_required_outside_baseball():
             home_team="A",
             away_team="B",
             pick="home",
+            analysis_prompt_version_id="a" * 32,
         )
 
 
@@ -129,6 +133,7 @@ def test_baseball_derives_event_id_from_teams():
         home_team="Yankees",
         away_team="Red Sox",
         pick="home",
+        analysis_prompt_version_id="a" * 32,
     )
 
     identity, document = build_document(payload)
@@ -155,6 +160,7 @@ def test_explicit_event_id_wins_for_baseball():
         home_team="Doosan Bears",
         away_team="LG Twins",
         pick="away",
+        analysis_prompt_version_id="a" * 32,
     )
 
     assert resolve_event_id(payload, "KBO") == 777
@@ -187,12 +193,35 @@ class FakeRepository:
         return stored
 
 
+class FakePromptRepository:
+    async def get_version_by_id(self, sport, prompt_type, version_id):
+        if prompt_type != "analysis" or version_id != "a" * 32:
+            return None
+        return {
+            "prompt_id": f"{sport}.analysis",
+            "version": 3,
+            "version_id": version_id,
+        }
+
+
 @pytest.mark.asyncio
 async def test_service_returns_stored_record():
-    stored = await ManualRecordService(FakeRepository()).register(football_payload())
+    stored = await ManualRecordService(
+        FakeRepository(), FakePromptRepository()
+    ).register(football_payload())
 
     assert stored.document_id == "abc"
     assert stored.event_id == 123456
     assert stored.model_version == "manual-v1"
     assert stored.provider == "manual"
     assert stored.requested_date == "2026-08-01"
+    assert stored.analysis_prompt.prompt_id == "football.analysis"
+    assert stored.analysis_prompt.version == 3
+
+
+@pytest.mark.asyncio
+async def test_service_rejects_prompt_version_from_another_or_missing_revision():
+    with pytest.raises(ValueError, match="analysis_prompt_version_id no existe"):
+        await ManualRecordService(
+            FakeRepository(), FakePromptRepository()
+        ).register(football_payload(analysis_prompt_version_id="f" * 32))

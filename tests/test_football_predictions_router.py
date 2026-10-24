@@ -7,6 +7,8 @@ from fastapi.testclient import TestClient
 from app.sports.football.predictions.router import router
 from app.sports.football.predictions.service import FootballPredictionService
 from test_football_predictions_service import (
+    ANALYSIS_PROMPT_VERSION_ID,
+    EVALUATION_PROMPT_VERSION_ID,
     FakeObservationProvider,
     FakeRepository,
     observation,
@@ -50,7 +52,13 @@ def make_client(repository=None, **service_overrides):
 
 
 def register(client, *items):
-    return client.post(PREDICTION_PATH, json={"items": list(items)})
+    return client.post(
+        PREDICTION_PATH,
+        json={
+            "analysis_prompt_version_id": ANALYSIS_PROMPT_VERSION_ID,
+            "items": list(items),
+        },
+    )
 
 
 def test_post_batch_returns_created_items():
@@ -317,6 +325,7 @@ def test_register_and_list_evaluations():
     registered = register(client, body(prediction_id="abcdefgh"))
     payload = {
         "version_id": registered.json()["items"][0]["version_id"],
+        "evaluation_prompt_version_id": EVALUATION_PROMPT_VERSION_ID,
         "analyst": "ana.garcia",
         "diagnosis": "El local dominó y sentenció en el segundo tiempo.",
         "learnings": ["La ventaja de localía pesó más que la forma reciente."],
@@ -346,6 +355,7 @@ def test_evaluation_for_unknown_prediction_returns_404():
         f"{PREDICTION_PATH}/zzzzzzzz/evaluations",
         json={
             "version_id": "0" * 32,
+            "evaluation_prompt_version_id": EVALUATION_PROMPT_VERSION_ID,
             "analyst": "ana.garcia",
             "diagnosis": "No existe el pronóstico que se intenta evaluar.",
             "learnings": ["Verificar el identificador antes de evaluar."],

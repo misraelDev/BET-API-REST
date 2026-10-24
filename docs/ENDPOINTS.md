@@ -15,7 +15,7 @@ los cuatro deportes.
 | --- | --- | --- |
 | GET | `/health` | Estado del servicio y de la conexión a MongoDB. |
 | GET | `/api/v1/sports` | Catálogo de deportes, fuente y versión (`manual-v1`). |
-| POST | `/api/v1/records` | Registra un partido con tu pick. |
+| POST | `/api/v1/records` | Registra un partido con tu pick y `analysis_prompt_version_id` exacto. |
 
 Cuerpo de `POST /api/v1/records`: `sport`, `date`, `league`, `home_team`,
 `away_team`, `pick` y, salvo en béisbol, `event_id`. Opcionales: `kickoff`,
@@ -134,6 +134,14 @@ responde `409`. El endpoint no tiene autenticación: restríngele el acceso de
 escritura desde la red o el proxy.
 
 Más detalle: [API de prompts para analistas](PROMPTS_API.md).
+
+Los pronósticos versionados de fútbol reciben en el cuerpo del lote
+`analysis_prompt_version_id`; todas las selecciones del lote quedan vinculadas
+a esa misma revisión. Cada evaluación debe incluir
+`evaluation_prompt_version_id`. Ambas referencias deben identificar una versión
+existente del deporte/tipo correspondiente; respuestas de lectura incluyen el
+objeto guardado `analysis_prompt` o `evaluation_prompt` con `prompt_id`,
+`version` y `version_id`. `method_version` permanece independiente.
 
 ## Parámetros comunes
 

@@ -3,7 +3,7 @@ info:
   title: BET Analytics API - Béisbol
   description: Contrato OpenAPI de béisbol (MLB/KBO). Incluye solo las rutas `/api/v1/baseball` y los
     esquemas que esas rutas referencian. El resto de deportes está en archivos separados dentro de `openapi/`.
-  version: 1.4.0
+  version: 1.5.0
   contact:
     name: BET Analytics
   license:

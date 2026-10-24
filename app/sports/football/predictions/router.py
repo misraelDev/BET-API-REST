@@ -46,12 +46,14 @@ from app.sports.football.predictions.repository import RepositoryConflict
 from app.sports.football.predictions.service import (
     FootballPredictionService,
     PredictionNotFound,
+    PromptVersionNotFound,
     VersionNotFound,
 )
 
 router = APIRouter(prefix="/api/v1/football", tags=["Football Predictions"])
 
 _BATCH_REQUEST_EXAMPLE: dict[str, Any] = {
+    "analysis_prompt_version_id": "3be3ffee060a4f01b01057c32f5ae197",
     "items": [
         {
             "prediction_id": "3d0f6f3e5c1a4f0ab1c2d3e4f5a6b7c8",
@@ -241,6 +243,11 @@ _STORED_PREDICTION_EXAMPLE: dict[str, Any] = {
     ],
     "analyst": "ana.garcia",
     "method_version": "analista-v1",
+    "analysis_prompt": {
+        "prompt_id": "football.analysis",
+        "version": 1,
+        "version_id": "3be3ffee060a4f01b01057c32f5ae197",
+    },
     "generated_at": "2026-10-24T16:30:00Z",
     "received_at": "2026-10-24T17:05:12.345678Z",
     "timing": {"status": "pre_match", "received_before_kickoff": True},
@@ -275,6 +282,11 @@ _EVALUATION_EXAMPLE: dict[str, Any] = {
     "prediction_id": "3d0f6f3e5c1a4f0ab1c2d3e4f5a6b7c8",
     "version": 1,
     "version_id": "9a1c2e3f4b5d6a7c8e9f0a1b2c3d4e5f",
+    "evaluation_prompt": {
+        "prompt_id": "football.evaluation",
+        "version": 1,
+        "version_id": "90fcd2406d3e4cb2bea14502e1247311",
+    },
     "analyst": "ana.garcia",
     "diagnosis": (
         "El local dominó el primer tiempo, pero el gol visitante al 60' "
@@ -402,6 +414,11 @@ async def register_predictions(
     service = _service(request)
     try:
         result = await service.register_batch(payload)
+    except PromptVersionNotFound as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
     except RuntimeError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -586,6 +603,11 @@ async def create_evaluation(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="No se encontró el pronóstico o la versión indicada.",
+        ) from exc
+    except PromptVersionNotFound as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
         ) from exc
     except RepositoryConflict as exc:
         raise HTTPException(

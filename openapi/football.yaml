@@ -3,7 +3,7 @@ info:
   title: BET Analytics API - Fútbol
   description: Contrato OpenAPI de fútbol. Incluye solo las rutas `/api/v1/football` y los esquemas que
     esas rutas referencian. El resto de deportes está en archivos separados dentro de `openapi/`.
-  version: 1.4.0
+  version: 1.5.0
   contact:
     name: BET Analytics
   license:
@@ -169,6 +169,7 @@ paths:
             examples:
               lote_liga_mx:
                 value:
+                  analysis_prompt_version_id: 3be3ffee060a4f01b01057c32f5ae197
                   items:
                   - prediction_id: 3d0f6f3e5c1a4f0ab1c2d3e4f5a6b7c8
                     idempotency_key: 2026-10-24-liga-mx-736644-1x2-home
@@ -260,6 +261,10 @@ paths:
                       note: Forma reciente y estadísticas del partido.
                     analyst: ana.garcia
                     method_version: analista-v1
+                    analysis_prompt:
+                      prompt_id: football.analysis
+                      version: 1
+                      version_id: 3be3ffee060a4f01b01057c32f5ae197
                     generated_at: '2026-10-24T16:30:00Z'
                     received_at: '2026-10-24T17:05:12.345678Z'
                     timing:
@@ -326,6 +331,10 @@ paths:
                       note: Forma reciente y estadísticas del partido.
                     analyst: ana.garcia
                     method_version: analista-v1
+                    analysis_prompt:
+                      prompt_id: football.analysis
+                      version: 1
+                      version_id: 3be3ffee060a4f01b01057c32f5ae197
                     generated_at: '2026-10-24T16:30:00Z'
                     received_at: '2026-10-24T17:05:12.345678Z'
                     timing:
@@ -550,6 +559,10 @@ paths:
                     note: Forma reciente y estadísticas del partido.
                   analyst: ana.garcia
                   method_version: analista-v1
+                  analysis_prompt:
+                    prompt_id: football.analysis
+                    version: 1
+                    version_id: 3be3ffee060a4f01b01057c32f5ae197
                   generated_at: '2026-10-24T16:30:00Z'
                   received_at: '2026-10-24T17:05:12.345678Z'
                   timing:
@@ -640,6 +653,10 @@ paths:
                     note: Forma reciente y estadísticas del partido.
                   analyst: ana.garcia
                   method_version: analista-v1
+                  analysis_prompt:
+                    prompt_id: football.analysis
+                    version: 1
+                    version_id: 3be3ffee060a4f01b01057c32f5ae197
                   generated_at: '2026-10-24T16:30:00Z'
                   received_at: '2026-10-24T17:05:12.345678Z'
                   timing:
@@ -679,6 +696,10 @@ paths:
                     note: Forma reciente y estadísticas del partido.
                   analyst: ana.garcia
                   method_version: analista-v1
+                  analysis_prompt:
+                    prompt_id: football.analysis
+                    version: 1
+                    version_id: 3be3ffee060a4f01b01057c32f5ae197
                   generated_at: '2026-10-24T16:30:00Z'
                   received_at: '2026-10-24T17:05:12.345678Z'
                   timing:
@@ -750,6 +771,10 @@ paths:
                 prediction_id: 3d0f6f3e5c1a4f0ab1c2d3e4f5a6b7c8
                 version: 1
                 version_id: 9a1c2e3f4b5d6a7c8e9f0a1b2c3d4e5f
+                evaluation_prompt:
+                  prompt_id: football.evaluation
+                  version: 1
+                  version_id: 90fcd2406d3e4cb2bea14502e1247311
                 analyst: ana.garcia
                 diagnosis: El local dominó el primer tiempo, pero el gol visitante al 60' cambió el guion;
                   el 1X2 se resolvió por un gol tardío.
@@ -841,6 +866,10 @@ paths:
                   prediction_id: 3d0f6f3e5c1a4f0ab1c2d3e4f5a6b7c8
                   version: 1
                   version_id: 9a1c2e3f4b5d6a7c8e9f0a1b2c3d4e5f
+                  evaluation_prompt:
+                    prompt_id: football.evaluation
+                    version: 1
+                    version_id: 90fcd2406d3e4cb2bea14502e1247311
                   analyst: ana.garcia
                   diagnosis: El local dominó el primer tiempo, pero el gol visitante al 60' cambió el
                     guion; el 1X2 se resolvió por un gol tardío.
@@ -1113,6 +1142,14 @@ components:
       title: FootballPredictionBatchItemResult
     FootballPredictionBatchRequest:
       properties:
+        analysis_prompt_version_id:
+          type: string
+          pattern: ^[A-Fa-f0-9]{32}$
+          title: Analysis Prompt Version Id
+          description: version_id exacto del prompt de análisis resuelto al inicio de la ejecución. Se
+            fija para todas las selecciones del lote.
+          examples:
+          - 3be3ffee060a4f01b01057c32f5ae197
         items:
           items:
             $ref: '#/components/schemas/FootballPredictionCreate'
@@ -1124,6 +1161,7 @@ components:
       additionalProperties: false
       type: object
       required:
+      - analysis_prompt_version_id
       - items
       title: FootballPredictionBatchRequest
       description: Carga por lotes. Cada elemento se guarda y evalúa por separado.
@@ -1464,6 +1502,14 @@ components:
           description: Identificador exacto de la versión evaluada.
           examples:
           - 9a1c2e3f4b5d6a7c8e9f0a1b2c3d4e5f
+        evaluation_prompt_version_id:
+          type: string
+          pattern: ^[A-Fa-f0-9]{32}$
+          title: Evaluation Prompt Version Id
+          description: version_id exacto del prompt de evaluación usado. No equivale a la versión del
+            método ni a la versión del pronóstico evaluado.
+          examples:
+          - 90fcd2406d3e4cb2bea14502e1247311
         analyst:
           type: string
           maxLength: 80
@@ -1512,6 +1558,7 @@ components:
       type: object
       required:
       - version_id
+      - evaluation_prompt_version_id
       - analyst
       - diagnosis
       - learnings
@@ -1521,6 +1568,7 @@ components:
       examples:
       - analyst: ana.garcia
         diagnosis: La lectura del primer tiempo fue acertada.
+        evaluation_prompt_version_id: 90fcd2406d3e4cb2bea14502e1247311
         learnings:
         - Revisar alineaciones antes del cierre.
         sources:
@@ -1761,6 +1809,29 @@ components:
       - name
       title: PredictionSource
       description: Fuente consultada por el analista para respaldar su selección.
+    PromptReference:
+      properties:
+        prompt_id:
+          type: string
+          title: Prompt Id
+          description: Identidad lógica estable del prompt.
+        version:
+          type: integer
+          minimum: 1.0
+          title: Version
+          description: Revisión humana exacta.
+        version_id:
+          type: string
+          pattern: ^[A-Fa-f0-9]{32}$
+          title: Version Id
+          description: Identificador inmutable de la revisión exacta.
+      type: object
+      required:
+      - prompt_id
+      - version
+      - version_id
+      title: PromptReference
+      description: Immutable reference to one exact prompt revision.
     SettlementSource:
       properties:
         name:
@@ -1809,6 +1880,12 @@ components:
         version_id:
           type: string
           title: Version Id
+        evaluation_prompt:
+          anyOf:
+          - $ref: '#/components/schemas/PromptReference'
+          - type: 'null'
+          description: Referencia exacta al prompt de evaluación. Null/ausente en evaluaciones históricas
+            sin evidencia verificable.
         analyst:
           type: string
           title: Analyst
@@ -2038,6 +2115,12 @@ components:
         method_version:
           type: string
           title: Method Version
+        analysis_prompt:
+          anyOf:
+          - $ref: '#/components/schemas/PromptReference'
+          - type: 'null'
+          description: Referencia exacta al prompt de análisis. Null/ausente en registros históricos cuyo
+            prompt no se puede verificar.
         generated_at:
           anyOf:
           - type: string

@@ -15,6 +15,8 @@ from pydantic import (
     model_validator,
 )
 
+from app.prompts.models import PromptReference
+
 from app.sports.football.predictions.catalog import (
     FootballLeague,
     KickoffSource,
@@ -428,6 +430,15 @@ class FootballPredictionBatchRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    analysis_prompt_version_id: str = Field(
+        pattern=r"^[A-Fa-f0-9]{32}$",
+        description=(
+            "version_id exacto del prompt de análisis resuelto al inicio de "
+            "la ejecución. Se fija para todas las selecciones del lote."
+        ),
+        examples=["3be3ffee060a4f01b01057c32f5ae197"],
+    )
+
     items: list[FootballPredictionCreate] = Field(
         min_length=1,
         max_length=100,
@@ -518,6 +529,13 @@ class StoredPrediction(BaseModel):
     sources: list[PredictionSource]
     analyst: str
     method_version: str
+    analysis_prompt: PromptReference | None = Field(
+        default=None,
+        description=(
+            "Referencia exacta al prompt de análisis. Null/ausente en registros "
+            "históricos cuyo prompt no se puede verificar."
+        ),
+    )
     generated_at: datetime | None = None
     received_at: datetime
     timing: StoredTiming
@@ -578,6 +596,7 @@ class FootballPredictionEvaluationCreate(BaseModel):
             "examples": [
                 {
                     "version_id": "9a1c2e3f4b5d6a7c8e9f0a1b2c3d4e5f",
+                    "evaluation_prompt_version_id": "90fcd2406d3e4cb2bea14502e1247311",
                     "analyst": "ana.garcia",
                     "diagnosis": "La lectura del primer tiempo fue acertada.",
                     "learnings": ["Revisar alineaciones antes del cierre."],
@@ -593,6 +612,14 @@ class FootballPredictionEvaluationCreate(BaseModel):
         max_length=64,
         description="Identificador exacto de la versión evaluada.",
         examples=["9a1c2e3f4b5d6a7c8e9f0a1b2c3d4e5f"],
+    )
+    evaluation_prompt_version_id: str = Field(
+        pattern=r"^[A-Fa-f0-9]{32}$",
+        description=(
+            "version_id exacto del prompt de evaluación usado. No equivale a "
+            "la versión del método ni a la versión del pronóstico evaluado."
+        ),
+        examples=["90fcd2406d3e4cb2bea14502e1247311"],
     )
     analyst: str = Field(
         min_length=2,
@@ -632,6 +659,13 @@ class StoredEvaluation(BaseModel):
     prediction_id: str
     version: int
     version_id: str
+    evaluation_prompt: PromptReference | None = Field(
+        default=None,
+        description=(
+            "Referencia exacta al prompt de evaluación. Null/ausente en "
+            "evaluaciones históricas sin evidencia verificable."
+        ),
+    )
     analyst: str
     diagnosis: str
     learnings: list[str]

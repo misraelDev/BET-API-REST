@@ -218,7 +218,9 @@ def test_market_does_not_use_line():
 def test_batch_rejects_duplicate_idempotency_keys():
     item = FootballPredictionCreate(**payload())
     with pytest.raises(ValidationError, match="idempotency_key debe ser única"):
-        FootballPredictionBatchRequest(items=[item, item])
+        FootballPredictionBatchRequest(
+            items=[item, item], analysis_prompt_version_id="a" * 32
+        )
 
 
 def test_batch_rejects_duplicate_prediction_ids():
@@ -227,7 +229,9 @@ def test_batch_rejects_duplicate_prediction_ids():
         **payload(idempotency_key="test-key-0002", prediction_id="abcdefgh")
     )
     with pytest.raises(ValidationError, match="prediction_id debe ser único"):
-        FootballPredictionBatchRequest(items=[first, second])
+        FootballPredictionBatchRequest(
+            items=[first, second], analysis_prompt_version_id="a" * 32
+        )
 
 
 def test_unknown_market_is_rejected():

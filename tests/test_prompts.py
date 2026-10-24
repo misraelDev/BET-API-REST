@@ -120,6 +120,7 @@ async def test_prompt_publication_creates_immutable_versions_and_retrieves_lates
     assert second.version == 2
     assert second.supersedes_version_id == first.version_id
     assert latest.version_id == second.version_id
+    assert latest.prompt_id == "football.analysis"
     assert exact.prompt == "Analiza con evidencia."
     assert exact.is_current is False
     assert [item.version for item in history] == [1, 2]

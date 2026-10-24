@@ -5,7 +5,7 @@ La biblioteca administra prompts por deporte y tipo en la colección MongoDB
 inmutable; publicar una mejora crea una versión nueva.
 
 Contrato desplegado: `https://start-bet-api-rest.xzpbpr.easypanel.host/openapi.json`
-(al desplegar este cambio, versión de API `1.4.0`). El contrato aislado será
+(al desplegar este cambio, versión de API `1.5.0`). El contrato aislado será
 `openapi/prompts.yaml`.
 
 ## Consultar una versión
@@ -21,8 +21,61 @@ GET /api/v1/prompts/football/analysis?version_id=9a1c2e3f4b5d6a7c8e9f0a1b2c3d4e5
 GET /api/v1/prompts/football/analysis/versions
 ```
 
-El cuerpo incluye `sport`, `prompt_type`, `version`, `version_id`, `prompt`,
+El cuerpo incluye `prompt_id` (identidad lógica estable, por ejemplo
+`football.analysis`), `version`, `version_id` (revisión inmutable), `prompt`,
 `is_current`, `supersedes_version_id`, `author` y `change_summary`.
+
+Al comenzar cada ejecución, resuelve la versión vigente una sola vez y conserva
+su `version_id` durante toda la ejecución. Si se publica una revisión mientras
+el análisis está en curso, sigue usando y registrando la versión ya resuelta.
+En los endpoints de registro se envía el `version_id`, y la API valida que la
+revisión exista para ese deporte y tipo antes de guardar la referencia.
+
+Los registros guardan `analysis_prompt` con `prompt_id`, `version` y
+`version_id`. Las evaluaciones guardan `evaluation_prompt` con esos mismos
+campos. `method_version` (o `model_version` en registros manuales) identifica
+el método y no es una versión del prompt. Los registros históricos sin
+referencia comprobable la mantienen ausente; no se completa retrospectivamente.
+
+## Rutas de registro y esquemas de referencia
+
+El esquema compartido `PromptReference` devuelto en los registros es:
+
+```json
+{
+  "prompt_id": "football.analysis",
+  "version": 1,
+  "version_id": "3be3ffee060a4f01b01057c32f5ae197"
+}
+```
+
+- `POST /api/v1/football/predictions`: el cuerpo del lote lleva
+  `analysis_prompt_version_id` junto a `items`. Todas las selecciones del lote
+  quedan fijadas a esa misma revisión. Cada `items[]` conserva su propio
+  `method_version`, que no debe confundirse con `analysis_prompt.version`.
+- `POST /api/v1/football/predictions/{prediction_id}/evaluations`: el cuerpo
+  lleva el `version_id` del pronóstico evaluado y
+  `evaluation_prompt_version_id` del prompt usado.
+- `POST /api/v1/records`: para los picks manuales de cualquier deporte, el
+  cuerpo incluye `analysis_prompt_version_id`.
+
+Ejemplo de evaluación:
+
+```json
+{
+  "version_id": "9a1c2e3f4b5d6a7c8e9f0a1b2c3d4e5f",
+  "evaluation_prompt_version_id": "90fcd2406d3e4cb2bea14502e1247311",
+  "analyst": "ana.garcia",
+  "diagnosis": "La selección se cumplió según el resultado final verificado.",
+  "learnings": ["Conservar el criterio de evaluación por mercado."],
+  "sources": [{"name": "ESPN"}]
+}
+```
+
+El OpenAPI desplegado contiene los modelos completos de petición y respuesta;
+los registros devuelven la referencia anidada `analysis_prompt` o
+`evaluation_prompt`. La versión de método sigue en `method_version` y no se
+autocompleta ni se sobrescribe con datos del prompt.
 
 ## Publicar una revisión
 

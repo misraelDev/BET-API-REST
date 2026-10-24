@@ -30,6 +30,15 @@ Usa `analysis` para un análisis nuevo y `evaluation` para revisar pronósticos.
 Sin parámetros se obtiene la revisión vigente; para una ejecución reproducible
 usa `version_id` explícito. La biblioteca local está en [`promt/`](../promt/).
 
+Al iniciar una ejecución, resuelve el prompt vigente una sola vez y conserva ese
+`version_id` hasta terminar, aunque se publique otra revisión. En pronósticos
+football envíalo como `analysis_prompt_version_id` en el lote; para registros
+manuales envíalo en el cuerpo de `POST /api/v1/records`. En evaluaciones de
+fútbol envía `evaluation_prompt_version_id`. La API verifica la existencia y
+guarda `prompt_id`, `version` y `version_id`. `method_version` identifica el
+método y debe seguir registrándose por separado. Las referencias de registros
+antiguos sin evidencia no se reconstruyen.
+
 ### Registro simple (cualquier deporte)
 
 1. Busca el partido en la fuente del deporte y anota su `event_id`.

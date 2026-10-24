@@ -5,6 +5,8 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
+from app.prompts.models import PromptReference
+
 MANUAL_MODEL_VERSION = "manual-v1"
 
 SportName = Literal["football", "nba", "baseball", "tennis"]
@@ -45,6 +47,13 @@ class RecordCreateRequest(BaseModel):
             "Tu selección: home, draw o away. El empate solo existe en "
             "fútbol. En tenis, home es el jugador uno y away el jugador dos."
         )
+    )
+    analysis_prompt_version_id: str = Field(
+        pattern=r"^[A-Fa-f0-9]{32}$",
+        description=(
+            "version_id exacto del prompt de análisis usado en esta ejecución. "
+            "No sustituye a model_version ni a method_version."
+        ),
     )
     kickoff: datetime | None = Field(
         default=None,
@@ -111,6 +120,13 @@ class StoredRecord(BaseModel):
     provider: str
     timezone: str
     prediction: dict[str, Any]
+    analysis_prompt: PromptReference | None = Field(
+        default=None,
+        description=(
+            "Referencia exacta al prompt. Ausente en registros históricos "
+            "cuyo prompt usado no se puede comprobar."
+        ),
+    )
     generated_at: datetime
     updated_at: datetime
     created_at: datetime

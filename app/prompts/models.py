@@ -25,6 +25,22 @@ class PromptType(StrEnum):
 VERSION_ID_PATTERN = r"^[A-Fa-f0-9]{32}$"
 
 
+def make_prompt_id(sport: str, prompt_type: str) -> str:
+    """Stable logical identity shared by all immutable prompt revisions."""
+    return f"{sport}.{prompt_type}"
+
+
+class PromptReference(BaseModel):
+    """Immutable reference to one exact prompt revision."""
+
+    prompt_id: str = Field(description="Identidad lógica estable del prompt.")
+    version: int = Field(ge=1, description="Revisión humana exacta.")
+    version_id: str = Field(
+        pattern=VERSION_ID_PATTERN,
+        description="Identificador inmutable de la revisión exacta.",
+    )
+
+
 class PromptCreate(BaseModel):
     """Publish a new immutable prompt revision, based on an exact revision."""
 
@@ -63,6 +79,7 @@ class Prompt(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     document_id: str
+    prompt_id: str
     sport: PromptSport
     prompt_type: PromptType
     version: int = Field(ge=1)
@@ -76,6 +93,25 @@ class Prompt(BaseModel):
     change_summary: str
     created_at: datetime
     updated_at: datetime | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _populate_prompt_id(cls, value):
+        if isinstance(value, dict) and not value.get("prompt_id"):
+            value = dict(value)
+            sport = getattr(value.get("sport"), "value", value.get("sport"))
+            prompt_type = getattr(
+                value.get("prompt_type"), "value", value.get("prompt_type")
+            )
+            value["prompt_id"] = make_prompt_id(sport, prompt_type)
+        return value
+
+    def reference(self) -> PromptReference:
+        return PromptReference(
+            prompt_id=self.prompt_id,
+            version=self.version,
+            version_id=self.version_id,
+        )
 
     @model_validator(mode="after")
     def _created_at_is_aware(self) -> Self:
