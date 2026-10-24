@@ -1,10 +1,9 @@
 import pytest
 from pydantic import ValidationError
 
-from app.integrations.omniroute import OmniRouteClient
 from app.sports.baseball.enrichment.models import (
-    ExtractedLeagueStats,
     ExtractedScheduleGame,
+    ExtractedTeamStats,
 )
 from app.sports.baseball.enrichment.schedule_client import (
     PublicBaseballScheduleClient,
@@ -13,27 +12,13 @@ from app.sports.baseball.enrichment.service import BaseballWebEnrichmentService
 from app.sports.baseball.enrichment.sources import BaseballPublicWebSource
 
 
-def test_omniroute_json_parser_accepts_fenced_json():
-    parsed = OmniRouteClient._parse_json_object(
-        '```json\n{"teams":[{"team_name":"Yankees"}]}\n```'
-    )
-
-    assert parsed["teams"][0]["team_name"] == "Yankees"
-
-
 def test_extracted_stats_reject_impossible_record():
     with pytest.raises(ValidationError):
-        ExtractedLeagueStats.model_validate(
-            {
-                "teams": [
-                    {
-                        "team_name": "Invalid",
-                        "games_played": 10,
-                        "wins": 8,
-                        "losses": 5,
-                    }
-                ]
-            }
+        ExtractedTeamStats(
+            team_name="Invalid",
+            games_played=10,
+            wins=8,
+            losses=5,
         )
 
 

@@ -16,6 +16,10 @@ class Settings(BaseSettings):
     mongodb_uri: str = ""
     mongodb_database: str = "sports_db"
     mongodb_collection: str = "predictions"
+    mongodb_football_predictions_collection: str = "football_predictions"
+    mongodb_football_evaluations_collection: str = (
+        "football_prediction_evaluations"
+    )
     mongodb_required: bool = False
     cors_origins: str = "http://localhost:4200,http://127.0.0.1:4200"
     cors_origin_regex: str = r"^http://(localhost|127\.0\.0\.1):\d+$"
@@ -24,13 +28,13 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     log_api_responses: bool = True
     api_log_preview_chars: int = 2000
-    omniroute_base_url: str = "http://127.0.0.1:20128/v1"
-    omniroute_api_key: str = ""
-    omniroute_model: str = "oc/deepseek-v4-flash-free"
     web_enrichment_enabled: bool = True
     web_enrichment_timeout_seconds: float = 25.0
     baseball_settlement_enabled: bool = True
     baseball_settlement_interval_seconds: int = 600
+    football_kickoff_lookup_enabled: bool = True
+    football_kickoff_timeout_seconds: float = 8.0
+    public_base_url: str = ""
 
     model_config = SettingsConfigDict(
         env_file=".env",

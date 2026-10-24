@@ -6,14 +6,11 @@ from fastapi import APIRouter, HTTPException, Query, Request, Response
 from app.shared.pagination import set_pagination_headers
 from app.shared.prediction_filters import kickoff_hour_filter
 
-from app.shared.exceptions import ApiSportsError
 from app.sports.baseball.models import (
     BaseballLeague,
-    BaseballPredictionRequest,
     BaseballResultsUpdateRequest,
     BaseballResultsUpdateResponse,
     OfficialBaseballGame,
-    SportDailyPredictionResponse,
     StoredBaseballPrediction,
 )
 
@@ -91,72 +88,6 @@ async def update_market_results(
         ) from exc
 
 
-async def _generate_predictions(
-    request: Request,
-    target_date: date,
-    timezone: str,
-    limit: int,
-    league: BaseballLeague,
-) -> SportDailyPredictionResponse:
-    logger.info(
-        "baseball.generate date=%s timezone=%s limit=%s league=%s",
-        target_date,
-        timezone,
-        limit,
-        league.value,
-    )
-    try:
-        response = await request.app.state.baseball_service.predict_league_date(
-            target_date, timezone, limit, league
-        )
-        response.persistence = await request.app.state.prediction_repository.save_response(
-            "baseball", response
-        )
-        logger.info(
-            "baseball.generate_completed date=%s found=%s returned=%s inserted=%s updated=%s",
-            target_date,
-            response.games_found,
-            response.games_returned,
-            response.persistence.inserted,
-            response.persistence.updated,
-        )
-        return response
-    except ApiSportsError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=502,
-            detail=f"Respuesta incompatible del proveedor: {exc}",
-        ) from exc
-
-
-@router.get("/predictions", response_model=SportDailyPredictionResponse)
-async def daily_predictions(
-    request: Request,
-    target_date: date = Query(alias="date"),
-    timezone: str = Query(default="America/Mexico_City"),
-    limit: int = Query(default=20, ge=1, le=20),
-    league: BaseballLeague = Query(default=BaseballLeague.ALL),
-) -> SportDailyPredictionResponse:
-    return await _generate_predictions(
-        request, target_date, timezone, limit, league
-    )
-
-
-@router.post("/predictions", response_model=SportDailyPredictionResponse)
-async def create_predictions(
-    payload: BaseballPredictionRequest,
-    request: Request,
-) -> SportDailyPredictionResponse:
-    return await _generate_predictions(
-        request,
-        payload.date,
-        payload.timezone,
-        payload.limit,
-        payload.league,
-    )
-
-
 @router.get("/results", response_model=list[StoredBaseballPrediction])
 async def stored_results(
     request: Request,
@@ -167,6 +98,8 @@ async def stored_results(
     page_size: int = Query(default=50, ge=1, le=200),
     limit: int | None = Query(default=None, ge=1, le=200, deprecated=True),
     hour: int | None = Query(default=None, ge=0, le=23),
+    market: str = Query(default="winner"),
+    min_probability: float | None = Query(default=None, ge=0, le=100),
 ) -> list[StoredBaseballPrediction]:
     logger.info(
         "baseball.results date=%s league=%s limit=%s source=mongodb",
@@ -178,12 +111,26 @@ async def stored_results(
         size = limit or page_size
         repository = request.app.state.prediction_repository
         query_date = target_date.isoformat() if target_date else None
-        filters = kickoff_hour_filter(target_date, hour) if target_date is not None and hour is not None else None
+        market_fields = {
+            "handicap": "prediction.markets.handicap_confidence",
+            "total": "prediction.markets.total_confidence",
+        }
+        if market not in {"winner", *market_fields}:
+            raise HTTPException(status_code=422, detail="Mercado de béisbol no válido.")
+        filters = kickoff_hour_filter(target_date, hour) if target_date is not None and hour is not None else {}
+        if min_probability is not None:
+            if market == "winner":
+                filters["$or"] = [
+                    {"prediction.predicted_result": "home", "prediction.probabilities.home": {"$gte": min_probability}},
+                    {"prediction.predicted_result": "away", "prediction.probabilities.away": {"$gte": min_probability}},
+                ]
+            else:
+                filters[market_fields[market]] = {"$gte": min_probability}
         if hour is not None and target_date is None:
             raise HTTPException(status_code=422, detail="La fecha es obligatoria para filtrar por hora.")
         total = await repository.count_predictions(
             sport="baseball", requested_date=query_date, league=league.value,
-            filters=filters,
+            filters=filters or None,
         )
         results = await repository.list_predictions(
             sport="baseball",
@@ -191,7 +138,7 @@ async def stored_results(
             league=league.value,
             limit=size,
             offset=(page - 1) * size,
-            filters=filters,
+            filters=filters or None,
         )
         set_pagination_headers(response, total=total, page=page, page_size=size)
         logger.info("baseball.results_completed count=%s source=mongodb", len(results))

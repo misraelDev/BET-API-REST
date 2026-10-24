@@ -5,7 +5,7 @@ import unicodedata
 from datetime import UTC, datetime
 from typing import Any
 
-from pymongo import ASCENDING, AsyncMongoClient
+from pymongo import ASCENDING, AsyncMongoClient, ReturnDocument
 from pymongo.errors import PyMongoError
 
 from app.shared.models import (
@@ -130,7 +130,7 @@ class PredictionRepository:
                     **identity,
                     "model_version": response.model_version,
                     "provider": {
-                        "baseball": "MLB/KBO public web + OmniRoute",
+                        "baseball": "MLB public web + KBO official results",
                         "tennis": "ESPN public scoreboard",
                         "nba": "ESPN public scoreboard + standings",
                     }.get(sport, "API-Sports"),
@@ -181,6 +181,43 @@ class PredictionRepository:
             updated=updated,
             collection=self._collection_name,
         )
+
+    async def upsert_record(
+        self,
+        identity: dict[str, Any],
+        document: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Guarda un registro manual y devuelve el documento resultante."""
+        if self._collection is None:
+            raise RuntimeError(self._connection_error or "Persistencia deshabilitada.")
+
+        now = datetime.now(UTC)
+        try:
+            result = await self._collection.find_one_and_update(
+                identity,
+                {
+                    "$set": {**document, "updated_at": now},
+                    "$setOnInsert": {"created_at": now},
+                },
+                upsert=True,
+                return_document=ReturnDocument.AFTER,
+            )
+        except PyMongoError as exc:
+            logger.exception("mongodb.record_save_error sport=%s", identity.get("sport"))
+            raise RuntimeError(
+                f"Error guardando el registro: {exc.__class__.__name__}"
+            ) from exc
+
+        if result is None:
+            raise RuntimeError("No se pudo guardar el registro.")
+        result["document_id"] = str(result.pop("_id"))
+        logger.info(
+            "mongodb.record_saved sport=%s event_id=%s date=%s",
+            result.get("sport"),
+            result.get("event_id"),
+            result.get("requested_date"),
+        )
+        return result
 
     async def deduplicate_predictions(self, sport: str) -> int:
         if self._collection is None:
@@ -837,12 +874,33 @@ class PredictionRepository:
                 )
                 else "lost"
             )
+        statistics = fixture.get("statistics") or {}
+        additional_outcomes: dict[str, str | None] = {}
+        for key in ("corners", "cards"):
+            market = markets.get(key) or {}
+            actual_total = statistics.get(key)
+            outcome = None
+            if (
+                market.get("available")
+                and market.get("line") is not None
+                and actual_total is not None
+            ):
+                difference = float(actual_total) - float(market["line"])
+                outcome = "push" if difference == 0 else (
+                    "won"
+                    if (
+                        (market.get("selection") == "Más" and difference > 0)
+                        or (market.get("selection") == "Menos" and difference < 0)
+                    )
+                    else "lost"
+                )
+            additional_outcomes[key] = outcome
         for key, outcome in (
             ("handicap", handicap_outcome),
             ("double_chance", double_outcome),
             ("goals", goals_outcome),
-            ("corners", None),
-            ("cards", None),
+            ("corners", additional_outcomes["corners"]),
+            ("cards", additional_outcomes["cards"]),
         ):
             results[key] = {
                 "outcome": outcome,
@@ -852,6 +910,8 @@ class PredictionRepository:
             "game_status": "FT",
             "home_score": home_score,
             "away_score": away_score,
+            "corners": statistics.get("corners"),
+            "cards": statistics.get("cards"),
             "markets": results,
             "net_units": sum(
                 item["units"]

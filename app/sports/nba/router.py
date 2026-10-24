@@ -7,8 +7,8 @@ from app.shared.exceptions import ApiSportsError
 from app.shared.pagination import set_pagination_headers
 from app.shared.prediction_filters import kickoff_hour_filter
 from app.sports.nba.models import (
-    BasketballLeague, NbaPredictionRequest, NbaResultsUpdateRequest, NbaResultsUpdateResponse,
-    SportDailyPredictionResponse, StoredNbaPrediction,
+    BasketballLeague, NbaResultsUpdateRequest, NbaResultsUpdateResponse,
+    StoredNbaPrediction,
 )
 
 router = APIRouter(prefix="/api/v1/nba", tags=["NBA"])
@@ -30,40 +30,6 @@ def _matches_league(game: dict, league: BasketballLeague) -> bool:
     return league == BasketballLeague.ALL or _league_name(game) in LEAGUE_NAMES[league]
 
 
-@router.get("/predictions", response_model=SportDailyPredictionResponse)
-async def daily_predictions(
-    request: Request,
-    target_date: date = Query(alias="date"),
-    timezone: str = Query(default="America/Mexico_City"),
-    limit: int = Query(default=20, ge=1, le=20),
-    league: BasketballLeague = Query(default=BasketballLeague.NBA),
-) -> SportDailyPredictionResponse:
-    try:
-        response = await request.app.state.nba_service.predict_date(
-            target_date, timezone, limit,
-            None if league == BasketballLeague.ALL else set(LEAGUE_NAMES[league]),
-        )
-        response.persistence = await request.app.state.prediction_repository.save_response(
-            "nba", response
-        )
-        return response
-    except (ApiSportsError, httpx.HTTPError) as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=502,
-            detail=f"Respuesta incompatible del proveedor: {exc}",
-        ) from exc
-
-
-@router.post("/predictions", response_model=SportDailyPredictionResponse)
-async def create_predictions(payload: NbaPredictionRequest, request: Request):
-    return await daily_predictions(
-        request=request, target_date=payload.date,
-        timezone=payload.timezone, limit=payload.limit, league=payload.league,
-    )
-
-
 @router.get("/results", response_model=list[StoredNbaPrediction])
 async def stored_results(
     request: Request, response: Response,
@@ -71,18 +37,34 @@ async def stored_results(
     page: int = Query(1, ge=1), page_size: int = Query(50, ge=1, le=200),
     hour: int | None = Query(None, ge=0, le=23),
     league: BasketballLeague = Query(BasketballLeague.NBA),
+    market: str = Query("winner"),
+    min_probability: float | None = Query(None, ge=0, le=100),
 ):
     if hour is not None and target_date is None:
         raise HTTPException(status_code=422, detail="La fecha es obligatoria para filtrar por hora.")
     repository = request.app.state.prediction_repository
     query_date = target_date.isoformat() if target_date else None
-    filters = kickoff_hour_filter(target_date, hour) if target_date is not None and hour is not None else None
+    market_fields = {
+        "handicap": "prediction.markets.handicap_confidence",
+        "total": "prediction.markets.total_confidence",
+    }
+    if market not in {"winner", *market_fields}:
+        raise HTTPException(status_code=422, detail="Mercado de básquetbol no válido.")
+    filters = kickoff_hour_filter(target_date, hour) if target_date is not None and hour is not None else {}
+    if min_probability is not None:
+        if market == "winner":
+            filters["$or"] = [
+                {"prediction.predicted_result": "home", "prediction.probabilities.home": {"$gte": min_probability}},
+                {"prediction.predicted_result": "away", "prediction.probabilities.away": {"$gte": min_probability}},
+            ]
+        else:
+            filters[market_fields[market]] = {"$gte": min_probability}
     stored_league = None if league == BasketballLeague.ALL else next(iter(LEAGUE_NAMES[league]))
     try:
-        total = await repository.count_predictions("nba", query_date, league=stored_league, filters=filters)
+        total = await repository.count_predictions("nba", query_date, league=stored_league, filters=filters or None)
         rows = await repository.list_predictions(
             "nba", query_date, league=stored_league, limit=page_size,
-            offset=(page - 1) * page_size, filters=filters,
+            offset=(page - 1) * page_size, filters=filters or None,
         )
         set_pagination_headers(
             response, total=total, page=page, page_size=page_size

@@ -7,6 +7,7 @@ Esta guía define cómo registrar cambios en el backend FastAPI de BET Analytics
 Cada commit debe:
 
 - Representar un solo cambio lógico.
+- Llevar un número consecutivo único al inicio del título.
 - Estar escrito en español.
 - Seguir Conventional Commits.
 - Explicar `por qué` y `para qué`.
@@ -17,7 +18,7 @@ Los comandos Git no deben ejecutarse automáticamente. El desarrollador debe rev
 ## Formato obligatorio
 
 ```text
-<tipo>(<ámbito>): <título breve>
+<número> - <tipo>(<ámbito>): <título breve>
 
 por qué: <problema, necesidad o contexto>
 para qué: <resultado o beneficio esperado>
@@ -26,10 +27,18 @@ para qué: <resultado o beneficio esperado>
 Ejemplo:
 
 ```powershell
-git commit -m "feat(tenis): agregar liquidación de mercados" `
+git commit -m "1 - feat(tenis): agregar liquidación de mercados" `
   -m "por qué: las predicciones permanecían pendientes después del partido" `
   -m "para qué: registrar mercados ganados, perdidos y unidades netas"
 ```
+
+### Numeración consecutiva
+
+El número se incrementa por cada commit. Consulta el último número usado en
+`git log` y utiliza el siguiente entero (`último + 1`). Si todavía no hay
+commits numerados, comienza en `1`. No reutilices números ni reinicies la
+secuencia al cambiar de rama. Git no asigna este número automáticamente: quien
+crea el commit debe comprobar el historial y escribirlo en el mensaje.
 
 ## Tipos permitidos
 
@@ -83,7 +92,7 @@ git commit -m "feat(tenis): agregar liquidación de mercados" `
 
 ```powershell
 git add app/sports/nba/public_client.py
-git commit -m "feat(basquetbol): consultar cartelera pública de ESPN" `
+git commit -m "<número> - feat(basquetbol): consultar cartelera pública de ESPN" `
   -m "por qué: el proveedor anterior requería una cuenta suspendida" `
   -m "para qué: obtener NBA y WNBA sin depender de una API key"
 ```
@@ -92,7 +101,7 @@ git commit -m "feat(basquetbol): consultar cartelera pública de ESPN" `
 
 ```powershell
 git add app/database/repository.py tests/test_repository.py
-git commit -m "fix(db): evitar predicciones duplicadas de tenis" `
+git commit -m "<número> - fix(db): evitar predicciones duplicadas de tenis" `
   -m "por qué: la versión del modelo formaba parte de la identidad" `
   -m "para qué: actualizar el partido existente mediante upsert"
 ```
@@ -101,7 +110,7 @@ git commit -m "fix(db): evitar predicciones duplicadas de tenis" `
 
 ```powershell
 git add app/sports/tennis/service.py tests/test_tennis_service.py
-git commit -m "feat(prediccion): ponderar forma reciente de cada tenista" `
+git commit -m "<número> - feat(prediccion): ponderar forma reciente de cada tenista" `
   -m "por qué: el modelo dependía demasiado del historial directo" `
   -m "para qué: producir señales cuando los jugadores no tienen H2H"
 ```
@@ -110,7 +119,7 @@ git commit -m "feat(prediccion): ponderar forma reciente de cada tenista" `
 
 ```powershell
 git add Dockerfile .dockerignore README.md
-git commit -m "build(docker): contenerizar API de predicciones" `
+git commit -m "<número> - build(docker): contenerizar API de predicciones" `
   -m "por qué: el backend necesitaba un entorno reproducible" `
   -m "para qué: desplegar FastAPI con dependencias y healthcheck"
 ```
@@ -119,7 +128,7 @@ git commit -m "build(docker): contenerizar API de predicciones" `
 
 ```powershell
 git add README.md COMMITS.md
-git commit -m "docs(proyecto): documentar backend y contribución" `
+git commit -m "<número> - docs(proyecto): documentar backend y contribución" `
   -m "por qué: la documentación anterior no reflejaba la arquitectura actual" `
   -m "para qué: facilitar instalación, despliegue y mantenimiento"
 ```
@@ -180,7 +189,7 @@ Evita `git add .` cuando existan cambios independientes.
 ### 6. Crear el commit
 
 ```powershell
-git commit -m "tipo(ámbito): título" `
+git commit -m "<número> - tipo(ámbito): título" `
   -m "por qué: motivo" `
   -m "para qué: objetivo"
 ```
@@ -205,7 +214,7 @@ Respeta las reglas de protección del repositorio y utiliza Pull Requests cuando
 Cuando se modifique una ruta, un payload o una respuesta consumida por Angular:
 
 ```powershell
-git commit -m "feat(api): unificar respuesta paginada" `
+git commit -m "<número> - feat(api): unificar respuesta paginada" `
   -m "por qué: los deportes devolvían contratos diferentes" `
   -m "para qué: simplificar el consumo desde el frontend" `
   -m "BREAKING CHANGE: cambia la estructura de los endpoints results"

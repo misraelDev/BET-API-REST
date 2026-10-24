@@ -90,6 +90,13 @@ class ResilientFootballClient:
                 return await self._fallback.get_current_leagues()
             except ApiSportsError:
                 return await self._public_web.get_current_leagues()
+
+    async def get_fixtures_by_ids(
+        self,
+        fixture_ids: list[int],
+        timezone: str,
+    ) -> list[dict[str, Any]]:
+        return await self._public_web.get_fixtures_by_ids(fixture_ids, timezone)
         try:
             return await self._primary.get_current_leagues()
         except (ApiSportsDailyLimitError, ApiSportsUnavailableError):

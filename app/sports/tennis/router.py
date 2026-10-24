@@ -7,29 +7,13 @@ from app.shared.prediction_filters import kickoff_hour_filter
 
 from app.sports.tennis.models import (
     StoredTennisPrediction,
-    TennisDailyPredictionResponse,
     TennisMatchCountResponse,
-    TennisPredictionRequest,
     TennisResultsUpdateRequest,
     TennisResultsUpdateResponse,
     TennisTour,
 )
 
 router = APIRouter(prefix="/api/v1/tennis", tags=["Tennis"])
-
-
-async def _generate(request: Request, target_date: date, timezone: str, limit: int, tour: TennisTour, page: int = 1):
-    try:
-        response = await request.app.state.tennis_service.predict_date(target_date, timezone, limit, tour, page)
-        response.persistence = await request.app.state.prediction_repository.save_response("tennis", response)
-        return response
-    except (httpx.HTTPError, ValueError) as exc:
-        raise HTTPException(status_code=502, detail=f"No fue posible consultar tenis público: {exc}") from exc
-
-
-@router.get("/predictions", response_model=TennisDailyPredictionResponse)
-async def predictions(request: Request, target_date: date = Query(alias="date"), timezone: str = "America/Mexico_City", limit: int = Query(20, ge=1, le=200), tour: TennisTour = TennisTour.ALL, page: int = Query(1, ge=1)):
-    return await _generate(request, target_date, timezone, limit, tour, page)
 
 
 @router.get("/matches/count", response_model=TennisMatchCountResponse)
@@ -51,11 +35,6 @@ async def match_count(
             status_code=502,
             detail=f"No fue posible consultar la cartelera de tenis: {exc}",
         ) from exc
-
-
-@router.post("/predictions", response_model=TennisDailyPredictionResponse)
-async def create_predictions(payload: TennisPredictionRequest, request: Request):
-    return await _generate(request, payload.date, payload.timezone, payload.limit, payload.tour, payload.page)
 
 
 @router.get("/results", response_model=list[StoredTennisPrediction])

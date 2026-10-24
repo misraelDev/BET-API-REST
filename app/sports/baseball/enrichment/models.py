@@ -24,10 +24,6 @@ class ExtractedTeamStats(BaseModel):
         return self
 
 
-class ExtractedLeagueStats(BaseModel):
-    teams: list[ExtractedTeamStats] = Field(default_factory=list, max_length=40)
-
-
 class ExtractedScheduleGame(BaseModel):
     league: str
     home_team: str = Field(min_length=1, max_length=120)
@@ -38,15 +34,11 @@ class ExtractedScheduleGame(BaseModel):
     away_score: int | None = Field(default=None, ge=0, le=100)
 
 
-class ExtractedSchedule(BaseModel):
-    games: list[ExtractedScheduleGame] = Field(default_factory=list, max_length=40)
-
-
 class EnrichmentEvidence(BaseModel):
     league: str
     source_name: str
     source_url: str
     fetched_at: datetime
-    extraction_method: str = "html+llm"
+    extraction_method: str = "html+parser"
     teams_requested: list[str]
     teams_mapped: list[str]

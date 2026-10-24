@@ -25,6 +25,12 @@ PUBLIC_FOOTBALL_LEAGUES = {
         "season_type": "calendar_year",
     },
 }
+LEAGUES_CUP = {
+    "id": 9003,
+    "name": "Leagues Cup",
+    "country": "North America",
+    "espn_slug": "concacaf.leagues.cup",
+}
 
 
 class PublicWebFootballClient:
@@ -41,6 +47,12 @@ class PublicWebFootballClient:
             timeout=timeout_seconds,
             transport=transport,
         )
+        self._espn_client = httpx.AsyncClient(
+            base_url="https://site.api.espn.com/apis/site/v2/sports/soccer",
+            timeout=timeout_seconds,
+            transport=transport,
+            headers={"Accept": "application/json", "User-Agent": "BET-API-REST/1.0"},
+        )
         self._fixtures: dict[int, dict[str, Any]] = {}
         self._metrics: dict[int, dict[str, float]] = {}
         self._market_stats = market_stats
@@ -48,6 +60,7 @@ class PublicWebFootballClient:
 
     async def close(self) -> None:
         await self._client.aclose()
+        await self._espn_client.aclose()
         if self._market_stats:
             await self._market_stats.close()
 
@@ -105,8 +118,13 @@ class PublicWebFootballClient:
             fixtures.extend(
                 self._adapt_event(event, league, timezone)
                 for event in events
-                if self._event_local_date(event, timezone) == target_date
+                if (
+                    self._event_local_date(event, timezone) == target_date
+                    or event.get("dateEvent") == target_date
+                    or event.get("dateEventLocal") == target_date
+                )
             )
+        fixtures.extend(await self._get_espn_fixtures(target_date, timezone))
         self._metrics = self._build_metrics(completed_events)
         self._fixtures = {
             fixture["fixture"]["id"]: fixture
@@ -129,7 +147,7 @@ class PublicWebFootballClient:
         return fixtures
 
     async def get_current_leagues(self) -> list[dict[str, Any]]:
-        return [
+        leagues = [
             {
                 "league": {"id": league["id"], "name": league["name"]},
                 "seasons": [
@@ -146,6 +164,114 @@ class PublicWebFootballClient:
             }
             for league in PUBLIC_FOOTBALL_LEAGUES.values()
         ]
+        leagues.append({
+            "league": {"id": LEAGUES_CUP["id"], "name": LEAGUES_CUP["name"]},
+            "seasons": [{
+                "year": datetime.now().year,
+                "coverage": {
+                    "predictions": False,
+                    "injuries": False,
+                    "standings": False,
+                    "fixtures": {"statistics_fixtures": True},
+                },
+            }],
+        })
+        return leagues
+
+    async def get_fixtures_by_ids(
+        self,
+        fixture_ids: list[int],
+        timezone: str,
+    ) -> list[dict[str, Any]]:
+        async def fetch(fixture_id: int) -> dict[str, Any] | None:
+            payload = await self._get("/lookupevent.php", {"id": fixture_id})
+            events = payload.get("events") or []
+            if not events:
+                espn = await self._get_espn(
+                    f"/{LEAGUES_CUP['espn_slug']}/summary", {"event": fixture_id}
+                )
+                competitions = ((espn.get("header") or {}).get("competitions") or [])
+                return self._adapt_espn_event(competitions[0], timezone) if competitions else None
+            event = events[0]
+            league = next(
+                (
+                    item
+                    for item in PUBLIC_FOOTBALL_LEAGUES.values()
+                    if int(item["id"]) == int(event.get("idLeague") or 0)
+                ),
+                None,
+            )
+            return self._adapt_event(event, league, timezone) if league else None
+
+        results = await asyncio.gather(*(fetch(item) for item in fixture_ids))
+        return [item for item in results if item is not None]
+
+    async def _get_espn_fixtures(
+        self, target_date: str, timezone: str
+    ) -> list[dict[str, Any]]:
+        payload = await self._get_espn(
+            f"/{LEAGUES_CUP['espn_slug']}/scoreboard",
+            {"dates": target_date.replace("-", ""), "limit": 100},
+        )
+        fixtures = []
+        for event in payload.get("events") or []:
+            competitions = event.get("competitions") or []
+            if not competitions:
+                continue
+            fixture = self._adapt_espn_event(competitions[0], timezone)
+            if fixture and fixture["fixture"]["date"][:10] == target_date:
+                fixtures.append(fixture)
+        return fixtures
+
+    @staticmethod
+    def _adapt_espn_event(
+        competition: dict[str, Any], timezone: str
+    ) -> dict[str, Any] | None:
+        competitors = competition.get("competitors") or []
+        home = next((item for item in competitors if item.get("homeAway") == "home"), None)
+        away = next((item for item in competitors if item.get("homeAway") == "away"), None)
+        if not home or not away or not competition.get("id"):
+            return None
+        value = str(competition.get("date") or "")
+        try:
+            kickoff = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            if timezone == "America/Mexico_City":
+                kickoff = kickoff.astimezone(fixed_timezone(timedelta(hours=-6)))
+        except ValueError:
+            return None
+        status_type = ((competition.get("status") or {}).get("type") or {})
+        status = "FT" if status_type.get("completed") else (
+            "NS" if status_type.get("state") == "pre" else "LIVE"
+        )
+        return {
+            "fixture": {
+                "id": int(competition["id"]),
+                "date": kickoff.isoformat(),
+                "status": {"short": status},
+                "source": "ESPN public scoreboard",
+            },
+            "league": {
+                "id": LEAGUES_CUP["id"],
+                "name": LEAGUES_CUP["name"],
+                "country": LEAGUES_CUP["country"],
+                "season": kickoff.year,
+            },
+            "teams": {
+                "home": {"id": int(home["team"]["id"]), "name": home["team"]["displayName"]},
+                "away": {"id": int(away["team"]["id"]), "name": away["team"]["displayName"]},
+            },
+            "goals": {
+                "home": PublicWebFootballClient._score(home.get("score")) if status == "FT" else None,
+                "away": PublicWebFootballClient._score(away.get("score")) if status == "FT" else None,
+            },
+            "_requested_timezone": timezone,
+        }
+
+    async def _get_espn(self, path: str, params: dict[str, Any]) -> dict[str, Any]:
+        response = await self._espn_client.get(path, params=params)
+        response.raise_for_status()
+        payload = response.json()
+        return payload if isinstance(payload, dict) else {}
 
     async def get_prediction(self, fixture_id: int) -> dict[str, Any] | None:
         fixture = self._fixtures.get(fixture_id)
@@ -313,7 +439,12 @@ class PublicWebFootballClient:
             except ValueError:
                 continue
         if parsed is None:
-            return None
+            event_date = str(event.get("dateEvent") or "").strip()
+            event_time = str(event.get("strTime") or "00:00:00").strip()
+            try:
+                parsed = datetime.fromisoformat(f"{event_date}T{event_time}")
+            except ValueError:
+                return None
         if parsed.tzinfo is None:
             parsed = parsed.replace(tzinfo=UTC)
         offsets = {

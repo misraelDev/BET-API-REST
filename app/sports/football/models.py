@@ -3,7 +3,7 @@
 from datetime import date, datetime
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.shared.models import (
     DailyPredictionResponse,
@@ -11,6 +11,7 @@ from app.shared.models import (
     ProbabilitySet,
     WeightContribution,
 )
+from app.sports.football.predictions.models import FootballResultsUpdateError
 
 
 class FootballResultsUpdateRequest(BaseModel):
@@ -19,10 +20,25 @@ class FootballResultsUpdateRequest(BaseModel):
 
 class FootballResultsUpdateResponse(BaseModel):
     date: date
+    source: str = Field(
+        default="ESPN public summary + TheSportsDB public schedule",
+        description="Fuentes consultadas para actualizar resultados.",
+    )
     official_fixtures: int
     final_fixtures: int
-    predictions_matched: int
-    predictions_updated: int
+    predictions_matched: int = Field(
+        description="Contador heredado de la colección predictions."
+    )
+    predictions_updated: int = Field(
+        description="Contador heredado de la colección predictions."
+    )
+    football_predictions_matched: int = 0
+    football_predictions_settled: int = 0
+    football_predictions_updated: int = 0
+    football_predictions_pending: int = 0
+    unmatched_event_ids: list[str] = Field(default_factory=list)
+    fixtures_without_predictions: list[int] = Field(default_factory=list)
+    errors: list[FootballResultsUpdateError] = Field(default_factory=list)
 
 
 class StoredFootballPrediction(BaseModel):

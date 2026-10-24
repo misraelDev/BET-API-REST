@@ -4,40 +4,25 @@ from difflib import SequenceMatcher
 from typing import Any
 
 from app.database.repository import PredictionRepository
-from app.integrations.omniroute import OmniRouteClient
-from app.sports.baseball.enrichment.models import (
-    EnrichmentEvidence,
-    ExtractedLeagueStats,
-)
+from app.sports.baseball.enrichment.models import EnrichmentEvidence
 from app.sports.baseball.enrichment.sources import BaseballPublicWebSource
 
 logger = logging.getLogger(__name__)
-
-SYSTEM_PROMPT = """You extract baseball team statistics from public webpage text.
-Return one JSON object only, with this exact shape:
-{"teams":[{"team_name":"string","games_played":null,"wins":null,"losses":null,
-"runs_for":null,"runs_against":null,"source_excerpt":"short exact evidence"}]}
-Only include requested teams found in the supplied text. Use null when a value is not
-explicitly supported. Never estimate, calculate, complete, or invent a statistic.
-Numbers must describe the current season table shown in the supplied content."""
 
 
 class BaseballWebEnrichmentService:
     def __init__(
         self,
         source: BaseballPublicWebSource,
-        mapper: OmniRouteClient,
         repository: PredictionRepository,
         enabled: bool = True,
     ) -> None:
         self._source = source
-        self._mapper = mapper
         self._repository = repository
         self._enabled = enabled
 
     async def close(self) -> None:
         await self._source.close()
-        await self._mapper.close()
 
     async def build_fallback(
         self,
@@ -49,7 +34,7 @@ class BaseballWebEnrichmentService:
         league_groups: dict[str, list[dict[str, Any]]] = {}
         for game in games:
             league = str(game.get("league", {}).get("name", "")).upper()
-            if league in {"MLB", "KBO"}:
+            if league == "MLB":
                 league_groups.setdefault(league, []).append(game)
 
         combined: dict[int, dict[str, Any]] = {}
@@ -80,29 +65,15 @@ class BaseballWebEnrichmentService:
         teams = self._game_teams(games)
         source_name, source_url, page_text = await self._source.fetch_league_page(league)
         requested_names = [team["name"] for team in teams.values()]
-        if league == "MLB":
-            extracted_teams = self._source.parse_mlb_standings(
-                page_text,
-                requested_names,
-            )
-            extraction_method = "html+parser"
-            if not extracted_teams:
-                raise ValueError("El parser MLB no encontro equipos solicitados.")
-        else:
-            extracted_teams = []
-            extraction_method = "html+llm"
-            for start in range(0, len(requested_names), 10):
-                batch = requested_names[start : start + 10]
-                mapped_payload = await self._mapper.map_json(
-                    SYSTEM_PROMPT,
-                    (
-                        f"League: {league}\nRequested teams: "
-                        f"{', '.join(batch)}\n\nPublic page text:\n{page_text}"
-                    ),
-                )
-                extracted_teams.extend(
-                    ExtractedLeagueStats.model_validate(mapped_payload).teams
-                )
+        if league != "MLB":
+            raise ValueError(f"No hay parser deterministico para {league}.")
+        extracted_teams = self._source.parse_mlb_standings(
+            page_text,
+            requested_names,
+        )
+        if not extracted_teams:
+            raise ValueError("El parser MLB no encontro equipos solicitados.")
+        extraction_method = "html+parser"
         rows: dict[int, dict[str, Any]] = {}
         mapped_names: list[str] = []
         for item in extracted_teams:

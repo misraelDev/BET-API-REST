@@ -1,15 +1,10 @@
-import asyncio
 import logging
 import re
 import zlib
 from datetime import UTC, datetime, timedelta, timezone as fixed_timezone
 from typing import Any
 
-from app.integrations.omniroute import OmniRouteClient
-from app.sports.baseball.enrichment.models import (
-    ExtractedSchedule,
-    ExtractedScheduleGame,
-)
+from app.sports.baseball.enrichment.models import ExtractedScheduleGame
 from app.sports.baseball.enrichment.sources import BaseballPublicWebSource
 
 logger = logging.getLogger(__name__)
@@ -49,33 +44,19 @@ MLB_TEAM_ALIASES = {
     "WSH": "Washington Nationals",
 }
 
-SCHEDULE_PROMPT = """You extract scheduled baseball games from official webpage text.
-Return one JSON object only:
-{"games":[{"league":"MLB or KBO","home_team":"string","away_team":"string",
-"kickoff":"ISO-8601 datetime with UTC offset","status":"NS, LIVE, FT, POST or CANC",
-"home_score":null,"away_score":null}]}
-Only return games played on the requested local calendar date. Do not invent games,
-teams, times, scores, or statuses. The page may list times in ET for MLB. Convert them
-to the requested timezone and include its UTC offset. Use NS when the game has not
-started, LIVE while playing, FT when finished, POST when postponed, and CANC when
-cancelled. Scores must be integers and must remain null until explicitly shown."""
-
 
 class PublicBaseballScheduleClient:
     def __init__(
         self,
         source: BaseballPublicWebSource,
-        mapper: OmniRouteClient,
         cache_ttl_seconds: int = 900,
     ) -> None:
         self._source = source
-        self._mapper = mapper
         self._cache_ttl = timedelta(seconds=cache_ttl_seconds)
         self._cache: dict[str, tuple[datetime, list[dict[str, Any]]]] = {}
 
     async def close(self) -> None:
         await self._source.close()
-        await self._mapper.close()
 
     async def get_games(
         self,
@@ -92,89 +73,47 @@ class PublicBaseballScheduleClient:
             )
             return cached[1]
 
-        results = await asyncio.gather(
-            *(
-                self._fetch_and_map(league, target_date, timezone)
-                for league in ("MLB", "KBO")
-            ),
-            return_exceptions=True,
-        )
-        games: list[dict[str, Any]] = []
-        had_errors = False
-        for league, result in zip(("MLB", "KBO"), results, strict=True):
-            if isinstance(result, Exception):
-                had_errors = True
-                logger.error(
-                    "public_schedule.failed league=%s date=%s error=%s",
-                    league,
-                    target_date,
-                    result,
-                )
-                continue
-            games.extend(result)
-        if not had_errors:
-            self._cache[cache_key] = (datetime.now(UTC), games)
-        else:
-            logger.warning(
-                "public_schedule.partial_result_not_cached date=%s games=%s",
+        try:
+            games = await self._fetch_mlb_games(target_date, timezone)
+        except Exception as exc:
+            logger.error(
+                "public_schedule.failed league=MLB date=%s error=%s",
                 target_date,
-                len(games),
+                exc,
             )
+            logger.warning(
+                "public_schedule.partial_result_not_cached date=%s games=0",
+                target_date,
+            )
+            return []
+
+        self._cache[cache_key] = (datetime.now(UTC), games)
         logger.info(
-            "public_schedule.completed date=%s games=%s source=public_web cached=%s",
+            "public_schedule.completed date=%s games=%s source=public_web cached=True",
             target_date,
             len(games),
-            not had_errors,
         )
         return games
 
     async def get_standings(self, league, season) -> list[dict[str, Any]]:
         return []
 
-    async def _fetch_and_map(
+    async def _fetch_mlb_games(
         self,
-        league: str,
         target_date: str,
         timezone: str,
     ) -> list[dict[str, Any]]:
-        source_name, source_url, text = await self._source.fetch_schedule_page(
-            league,
-            target_date,
-        )
-        if league == "MLB":
-            games = [
-                self._to_internal_game(game, target_date)
-                for game in self._parse_mlb_schedule(
-                    text,
-                    target_date,
-                    timezone,
-                )
-            ]
-            logger.info(
-                "public_schedule.parsed league=MLB date=%s games=%s",
-                target_date,
-                len(games),
-            )
-            return games
-
-        payload = await self._mapper.map_json(
-            SCHEDULE_PROMPT,
-            (
-                f"Requested league: {league}\nRequested local date: {target_date}\n"
-                f"Requested timezone: {timezone}\nSource: {source_name}\n"
-                f"Source URL: {source_url}\n\nOfficial page text:\n{text}"
-            ),
-        )
-        extracted = ExtractedSchedule.model_validate(payload)
+        _, _, text = await self._source.fetch_schedule_page("MLB", target_date)
         games = [
             self._to_internal_game(game, target_date)
-            for game in extracted.games
-            if game.league.upper() == league
-            and game.kickoff.date().isoformat() == target_date
+            for game in self._parse_mlb_schedule(
+                text,
+                target_date,
+                timezone,
+            )
         ]
         logger.info(
-            "public_schedule.mapped league=%s date=%s games=%s",
-            league,
+            "public_schedule.parsed league=MLB date=%s games=%s",
             target_date,
             len(games),
         )

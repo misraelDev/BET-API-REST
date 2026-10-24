@@ -8,15 +8,15 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import get_settings
 from app.database.repository import PredictionRepository
-from app.integrations.omniroute import OmniRouteClient
+from app.records.models import MANUAL_MODEL_VERSION
+from app.records.router import router as records_router
+from app.records.service import ManualRecordService
 from app.shared.models import SportCapability
 from app.sports.baseball.router import router as baseball_router
-from app.sports.baseball.enrichment.service import BaseballWebEnrichmentService
 from app.sports.baseball.enrichment.schedule_client import (
     PublicBaseballScheduleClient,
 )
 from app.sports.baseball.enrichment.sources import BaseballPublicWebSource
-from app.sports.baseball.service import BaseballPredictionService
 from app.sports.baseball.settlement import BaseballSettlementService
 from app.sports.baseball.official_results import (
     KboOfficialResultsClient,
@@ -24,12 +24,25 @@ from app.sports.baseball.official_results import (
 )
 from app.sports.baseball.results_update import BaseballResultsUpdateService
 from app.sports.football.client import ApiFootballClient
+from app.sports.football.espn_results_client import EspnFootballResultsClient
 from app.sports.football.football_data_client import FootballDataClient
 from app.sports.football.resilient_client import ResilientFootballClient
 from app.sports.football.public_web_client import PublicWebFootballClient
 from app.sports.football.market_stats_client import FootballMarketStatsClient
+from app.sports.football.predictions.repository import (
+    FootballPredictionRepository,
+)
+from app.sports.football.predictions.router import (
+    router as football_predictions_router,
+)
+from app.sports.football.predictions.service import (
+    EspnKickoffResolver,
+    FootballPredictionService as VersionedFootballPredictionService,
+)
 from app.sports.football.router import router as football_router
-from app.sports.football.service import FootballPredictionService
+from app.sports.football.service import (
+    FootballPredictionService as LegacyFootballPredictionService,
+)
 from app.sports.nba.router import router as nba_router
 from app.sports.nba.service import NbaPredictionService
 from app.sports.nba.public_client import PublicBasketballClient
@@ -68,11 +81,6 @@ async def lifespan(app: FastAPI):
         source=BaseballPublicWebSource(
             timeout_seconds=settings.web_enrichment_timeout_seconds
         ),
-        mapper=OmniRouteClient(
-            base_url=settings.omniroute_base_url,
-            api_key=settings.omniroute_api_key,
-            model=settings.omniroute_model,
-        ),
         cache_ttl_seconds=settings.cache_ttl_seconds,
     )
     mlb_official_results = MlbOfficialResultsClient(
@@ -89,30 +97,36 @@ async def lifespan(app: FastAPI):
         required=settings.mongodb_required,
     )
     await repository.connect()
-    baseball_enrichment = BaseballWebEnrichmentService(
-        source=BaseballPublicWebSource(
-            timeout_seconds=settings.web_enrichment_timeout_seconds
+    football_predictions_repository = FootballPredictionRepository(
+        uri=settings.mongodb_uri,
+        database=settings.mongodb_database,
+        predictions_collection=settings.mongodb_football_predictions_collection,
+        evaluations_collection=(
+            settings.mongodb_football_evaluations_collection
         ),
-        mapper=OmniRouteClient(
-            base_url=settings.omniroute_base_url,
-            api_key=settings.omniroute_api_key,
-            model=settings.omniroute_model,
+        required=settings.mongodb_required,
+    )
+    await football_predictions_repository.connect()
+    espn_football_results = EspnFootballResultsClient(
+        timeout_seconds=settings.request_timeout_seconds
+    )
+    football_prediction_service = VersionedFootballPredictionService(
+        football_predictions_repository,
+        kickoff_resolver=(
+            EspnKickoffResolver(espn_football_results)
+            if settings.football_kickoff_lookup_enabled
+            else None
         ),
-        repository=repository,
-        enabled=settings.web_enrichment_enabled,
+        observation_provider=espn_football_results,
+        kickoff_timeout_seconds=settings.football_kickoff_timeout_seconds,
     )
     baseball_settlement = BaseballSettlementService(
         schedule_client=baseball_schedule_client,
         repository=repository,
     )
 
-    app.state.football_service = FootballPredictionService(football_client)
+    app.state.football_service = LegacyFootballPredictionService(football_client)
     app.state.nba_service = NbaPredictionService(nba_client)
-    app.state.baseball_service = BaseballPredictionService(
-        baseball_schedule_client,
-        standings_fallback=baseball_enrichment.build_fallback,
-    )
-    app.state.baseball_enrichment = baseball_enrichment
     app.state.mlb_official_results = mlb_official_results
     app.state.kbo_official_results = kbo_official_results
     app.state.baseball_results_update = BaseballResultsUpdateService(
@@ -126,6 +140,10 @@ async def lifespan(app: FastAPI):
     )
     app.state.tennis_service = TennisPredictionService(tennis_client)
     app.state.prediction_repository = repository
+    app.state.football_prediction_repository = football_predictions_repository
+    app.state.football_prediction_service = football_prediction_service
+    app.state.espn_football_results = espn_football_results
+    app.state.record_service = ManualRecordService(repository)
     settlement_task = None
     if settings.baseball_settlement_enabled:
         settlement_task = asyncio.create_task(
@@ -146,9 +164,10 @@ async def lifespan(app: FastAPI):
     await baseball_schedule_client.close()
     await mlb_official_results.close()
     await kbo_official_results.close()
-    await baseball_enrichment.close()
     await tennis_client.close()
     await app.state.prediction_repository.close()
+    await app.state.football_prediction_repository.close()
+    await app.state.espn_football_results.close()
 
 
 async def _run_baseball_settlement_loop(
@@ -168,11 +187,11 @@ async def _run_baseball_settlement_loop(
 
 
 app = FastAPI(
-    title="API-Sports Weighted Predictions",
-    version="1.1.0",
+    title="BET Analytics API",
+    version="1.2.0",
     description=(
-        "Modelos deportivos separados por dominio sobre productos del proveedor "
-        "API-Sports."
+        "Registro, consulta y liquidación de predicciones deportivas. "
+        "El registro es manual: la API ya no calcula probabilidades."
     ),
     lifespan=lifespan,
 )
@@ -192,7 +211,9 @@ app.add_middleware(
     expose_headers=["X-Total-Count", "X-Page", "X-Page-Size", "X-Total-Pages"],
 )
 
+app.include_router(records_router)
 app.include_router(football_router)
+app.include_router(football_predictions_router)
 app.include_router(nba_router)
 app.include_router(baseball_router)
 app.include_router(tennis_router)
@@ -216,6 +237,7 @@ async def health() -> dict[str, str]:
     tags=["System"],
 )
 async def sports_catalog() -> list[SportCapability]:
+    limitation = "Registro manual: la API ya no calcula probabilidades."
     return [
         SportCapability(
             sport="football",
@@ -223,28 +245,32 @@ async def sports_catalog() -> list[SportCapability]:
                 "API-Football + football-data.org + Liga MX public web"
             ),
             supported=True,
-            endpoint="/api/v1/football/predictions",
-            model_version="football-fusion-v2",
+            endpoint="/api/v1/records",
+            model_version=MANUAL_MODEL_VERSION,
+            limitation=limitation,
         ),
         SportCapability(
             sport="nba",
             provider_product="ESPN public web",
             supported=True,
-            endpoint="/api/v1/nba/predictions",
-            model_version="nba-record-v1",
+            endpoint="/api/v1/records",
+            model_version=MANUAL_MODEL_VERSION,
+            limitation=limitation,
         ),
         SportCapability(
             sport="baseball",
-            provider_product="MLB/KBO public web + OmniRoute",
+            provider_product="MLB public web + KBO official results",
             supported=True,
-            endpoint="/api/v1/baseball/predictions",
-            model_version="baseball-public-web-v2",
+            endpoint="/api/v1/records",
+            model_version=MANUAL_MODEL_VERSION,
+            limitation=limitation,
         ),
         SportCapability(
             sport="tennis",
             provider_product="ESPN public scoreboard (ATP/WTA)",
             supported=True,
-            endpoint="/api/v1/tennis/predictions",
-            model_version="tennis-elo-form-v2",
+            endpoint="/api/v1/records",
+            model_version=MANUAL_MODEL_VERSION,
+            limitation=limitation,
         ),
     ]

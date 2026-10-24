@@ -333,6 +333,8 @@ class FootballPredictionService:
                     and name in {"serie a", "brazilian serie a"}
                 )
             )
+        if league == "leagues_cup":
+            return league_id == 9003 or "leagues cup" in name
         return False
 
     @staticmethod
@@ -342,6 +344,8 @@ class FootballPredictionService:
             return "Liga MX"
         if FootballPredictionService._matches_league(fixture, "brasileirao"):
             return "Brasileirão Betano"
+        if FootballPredictionService._matches_league(fixture, "leagues_cup"):
+            return "Leagues Cup"
         return str(league.get("name") or "Unknown")
 
     @staticmethod
