@@ -15,6 +15,12 @@ class FakeCollection:
         self.insert_error = insert_error
         self.indexes = []
 
+    async def find_one(self, query):
+        return next(
+            (doc for doc in self.documents if all(doc.get(k) == v for k, v in query.items())),
+            None,
+        )
+
     async def update_one(self, query, update):
         item = next(
             (doc for doc in self.documents if all(doc.get(k) == v for k, v in query.items())),
@@ -47,6 +53,21 @@ def repository(collection):
     value._predictions = collection
     value._evaluations = FakeCollection()
     return value
+
+
+@pytest.mark.asyncio
+async def test_get_current_keeps_native_id_for_compare_and_set():
+    native_id = object()
+    collection = FakeCollection([{
+        "_id": native_id,
+        "prediction_id": "abcdefgh",
+        "version": 1,
+        "version_id": "a" * 32,
+        "is_current": True,
+    }])
+    current = await repository(collection).get_current("abcdefgh")
+    assert current["document_id"] == str(native_id)
+    assert current["_id"] is native_id
 
 
 @pytest.mark.asyncio

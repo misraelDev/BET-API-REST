@@ -7,7 +7,7 @@ cd C:\Users\Misrael\Documents\WEBS\BET\BET-API-REST
 .\.venv\Scripts\python.exe -m pytest -q
 ```
 
-La suite actual tiene **188 pruebas**.
+La suite actual tiene **189 pruebas**.
 
 ## Ejecutar un archivo concreto
 

@@ -218,7 +218,13 @@ class FootballPredictionRepository:
         document = await self._collection().find_one(
             {"prediction_id": prediction_id, "is_current": True}
         )
-        return prepare_document(document) if document else None
+        if document is None:
+            return None
+        result = prepare_document(document)
+        # The service passes this internal snapshot to insert_version(), whose
+        # compare-and-set must use Mongo's native _id (not its API string form).
+        result["_id"] = document["_id"]
+        return result
 
     async def get_version(
         self, prediction_id: str, version: int

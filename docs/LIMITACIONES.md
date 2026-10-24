@@ -53,6 +53,17 @@
 - Saudi Pro League, Qatar Stars League, AFC Champions League Elite, AFC
   Champions League Two y UEFA Conference League están disponibles para
   registro, pero explícitamente sin liquidación automática verificada.
+  La incorporación se hará por adaptadores de fuente oficiales por competición:
+  guardar resultado/estadísticas junto con URL de evidencia, hora de consulta,
+  partido y desglose del periodo; validar el mapeo de equipos y contrastar
+  marcadores antes de habilitar cada mercado. No se habilitará la liquidación
+  por el mero hecho de que exista un slug de ESPN.
+- Mientras no haya esa cobertura, los picks de esas cinco competiciones quedan
+  `pendiente` y el actualizador informa falta de cobertura; no los marca como
+  `fallado`. El analista puede registrar una evaluación diagnóstica separada
+  por `version_id`, pero esta no cambia el estado de liquidación. Actualmente
+  no existe un endpoint de override manual de resultados; no se deben insertar
+  resultados directamente en MongoDB para simular una liquidación.
 - `POST /api/v1/football/results/update` liquida como máximo 500 pronósticos
   vigentes por fecha en cada ejecución.
 - La liquidación oficial no la hacen los endpoints del analista. La evaluación

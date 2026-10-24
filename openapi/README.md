@@ -20,7 +20,7 @@ transversal a los cuatro deportes.
 ## Versión
 
 Los cinco archivos comparten la versión OpenAPI `3.1.0` y la versión de la API
-`1.3.0`.
+`1.3.1`.
 
 ## Regenerar
 
