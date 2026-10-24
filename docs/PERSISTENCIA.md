@@ -44,6 +44,11 @@ El contrato nuevo usa **dos colecciones independientes** del registro manual:
 No hay `upsert`: cada versión es un `insert` nuevo. La versión anterior se marca
 `is_current=false` y la nueva guarda `supersedes_version_id`.
 
+`received_at` es hora del servidor. Un kickoff declarado sin confirmación de
+ESPN se conserva como referencia, pero se etiqueta `unverified` y no permite
+acreditar timing prepartido. El detalle incluye `latest_verified_pre_match`, que
+busca entre el historial aunque la versión actual haya llegado tarde.
+
 ### Documento de pronóstico
 
 | Campo | Contenido |
@@ -76,6 +81,7 @@ cuando se escribe la liquidación.
 | `prediction_idempotency` | `idempotency_key` | Sí |
 | `prediction_version` | `prediction_id` + `version` | Sí |
 | `prediction_current` | `prediction_id` + `is_current` | No |
+| `prediction_single_current` | `prediction_id` parcial (`is_current=true`) | Sí |
 | `prediction_match_date` | `match.date` + `is_current` | No |
 | `prediction_event` | `event_id` + `is_current` | No |
 | `prediction_analyst` | `analyst` + `is_current` | No |
@@ -83,9 +89,13 @@ cuando se escribe la liquidación.
 | `prediction_settlement_status` | `settlement_status` | No |
 | `prediction_timing` | `timing.status` | No |
 
-El índice único de `idempotency_key` impide duplicados incluso con peticiones
-simultáneas. El de `prediction_id` + `version` impide dos versiones con el mismo
-número.
+La idempotencia tiene alcance global en `football_predictions`: la clave única
+reserva el reintento sin importar lote o analista. El índice compuesto por
+`prediction_id` + `version` impide repetir una versión. La promoción a vigente
+compara atómicamente el `version_id` previo (`is_current=true`) y el índice
+parcial único impide dos vigentes. Si la comparación pierde una carrera, la
+solicitud no modifica la versión ganadora; el cliente puede reintentar con la
+misma clave.
 
 ### Liquidación
 
@@ -110,7 +120,7 @@ número.
     "retrieved_at": "2026-10-25T05:00:00Z"
   },
   "settled_at": "2026-10-25T05:00:05Z",
-  "rule_version": "football-settlement-v1"
+  "rule_version": "football-settlement-v2"
 }
 ```
 
@@ -119,7 +129,7 @@ no se reescribe el documento. El pronóstico original (selección, probabilidad,
 confianza, fecha y fuentes) nunca se modifica.
 
 Los estados posibles son `pendiente`, `acertado`, `fallado`, `reembolso`,
-`anulado` y `no_evaluable`. La colección heredada de `MONGODB_COLLECTION` sigue
+`media_ganancia`, `media_perdida`, `anulado` y `no_evaluable`. La colección heredada de `MONGODB_COLLECTION` sigue
 usando `won`, `lost` y `push`; son mecanismos distintos y no se mezclan.
 
 ### Evaluaciones posteriores
@@ -127,9 +137,10 @@ usando `won`, `lost` y `push`; son mecanismos distintos y no se mezclan.
 Cada evaluación vive en `football_prediction_evaluations` y guarda
 `evaluation_id`, `prediction_id`, `version`, `version_id`, `analyst`,
 `diagnosis`, `learnings`, `sources`, `outcome_comment`, `tags` y `created_at`.
-El índice único `evaluation_identity` es
-`prediction_id` + `version` + `analyst`: un analista no puede evaluar dos veces
-la misma versión. Otra persona sí puede aportar su propia evaluación.
+La petición requiere `version_id`; la evaluación almacena también `version`.
+Los índices únicos `evaluation_identity` y `evaluation_version_identity` evitan
+duplicar una evaluación del mismo analista y la misma versión exacta. Otra
+persona sí puede aportar su propia evaluación.
 
 La evaluación no sustituye la liquidación oficial ni escribe en el documento
 del pronóstico.

@@ -103,6 +103,62 @@ def _handicap(
     return _won(adjusted > 0)
 
 
+def _asian_handicap(selected: int, opponent: int, line: float) -> SettlementStatus:
+    adjusted = selected + line - opponent
+    if abs(adjusted) < 1e-9:
+        return PUSH
+    return _won(adjusted > 0)
+
+
+def _asian_quarter_handicap(
+    selected: int, opponent: int, line: float
+) -> SettlementStatus:
+    lower = int(line * 2 // 1) / 2
+    upper = lower + 0.5
+    outcomes = [
+        _asian_handicap(selected, opponent, half_line)
+        for half_line in (lower, upper)
+    ]
+    wins = outcomes.count(WON)
+    losses = outcomes.count(LOST)
+    pushes = outcomes.count(PUSH)
+    if wins == 2:
+        return WON
+    if losses == 2:
+        return LOST
+    if wins and losses:
+        return PUSH
+    if wins and pushes:
+        return SettlementStatus.MEDIA_GANANCIA
+    if losses and pushes:
+        return SettlementStatus.MEDIA_PERDIDA
+    return PUSH
+
+
+def _european_handicap(
+    score: PeriodScore, line: float, selection: str
+) -> tuple[SettlementStatus, float, float, str]:
+    adjusted_home = score.home + line
+    adjusted_away = float(score.away)
+    actual = (
+        "home" if adjusted_home > adjusted_away
+        else "away" if adjusted_home < adjusted_away
+        else "draw"
+    )
+    return _won(actual == selection), adjusted_home, adjusted_away, actual
+
+
+def _period_stat(
+    observation: FootballObservation,
+    field: str,
+    period: Period,
+) -> PeriodScore | None:
+    if period == Period.FULL_TIME:
+        return getattr(observation, field)
+    period_field = getattr(observation, f"{field}_by_period")
+    return period_field.get(period.value)
+
+
 def _team_score(score: PeriodScore, team: str) -> int:
     return score.home if team == "home" else score.away
 
@@ -254,6 +310,7 @@ def _player_count(
     player_id: str | None,
     team: str | None,
     attribute: str,
+    period: Period,
 ) -> tuple[int | None, str]:
     player = _find_player(
         observation, name=name, player_id=player_id, team=team
@@ -262,7 +319,11 @@ def _player_count(
         if observation.rosters_complete:
             return 0, "el jugador no aparece en la plantilla disponible"
         return None, "sin datos verificables del jugador"
-    value = getattr(player, attribute)
+    value = (
+        getattr(player, attribute)
+        if period == Period.FULL_TIME
+        else (player.period_stats.get(period.value) or {}).get(attribute)
+    )
     if value is not None:
         return value, "estadística del jugador en el resumen del partido"
     if player.appeared is False:
@@ -361,13 +422,30 @@ def settle_prediction(
         )
 
     if market in (Market.ASIAN_HANDICAP, Market.EUROPEAN_HANDICAP):
+        if market == Market.EUROPEAN_HANDICAP:
+            status, adjusted_home, adjusted_away, actual = _european_handicap(
+                score, float(line), str(selection)
+            )
+            return SettlementResult(
+                status=status,
+                observed={
+                    **base,
+                    "home_handicap": line,
+                    "adjusted_home": adjusted_home,
+                    "adjusted_away": adjusted_away,
+                    "adjusted_result": actual,
+                },
+                summary=(
+                    f"{_scores_note(observation, period)}; resultado con "
+                    f"hándicap local {float(line):+g}: {actual}."
+                ),
+            )
         selected = _team_score(score, str(selection))
         opponent = score.away if selection == "home" else score.home
-        status = _handicap(
-            selected,
-            opponent,
-            float(line),
-            european=market == Market.EUROPEAN_HANDICAP,
+        status = (
+            _asian_quarter_handicap(selected, opponent, float(line))
+            if abs(float(line) * 2 - round(float(line) * 2)) > 1e-9
+            else _asian_handicap(selected, opponent, float(line))
         )
         adjusted = selected + float(line) - opponent
         return SettlementResult(
@@ -478,7 +556,7 @@ def settle_prediction(
         Market.SHOTS_ON_TARGET_TEAM,
         Market.SHOTS_ON_TARGET_PLAYER,
     ):
-        return _settle_shots(observation, prediction, market)
+        return _settle_shots(observation, prediction, market, period)
 
     return SettlementResult(
         status=NOT_EVALUABLE,
@@ -539,7 +617,7 @@ def _settle_corners(
     line: float | None,
     team: str | None,
 ) -> SettlementResult:
-    if observation.went_to_extra_time:
+    if observation.went_to_extra_time and period == Period.FULL_TIME:
         return SettlementResult(
             status=NOT_EVALUABLE,
             observed={"period": period.value, "extra_time": True},
@@ -549,13 +627,16 @@ def _settle_corners(
                 "alargue) y el periodo solicitado es tiempo completo."
             ),
         )
-    corners = observation.corners
+    corners = _period_stat(observation, "corners", period)
     if corners is None:
         return SettlementResult(
             status=NOT_EVALUABLE,
             observed={"period": period.value},
-            summary="La fuente no reporta córners para este partido.",
-            reason="No hay datos verificables de córners.",
+            summary=f"La fuente no reporta córners verificables para {period.value}.",
+            reason=(
+                "No hay datos desglosados para este periodo; no se usa el "
+                "total del partido para inferir una mitad."
+            ),
         )
     total = corners.home + corners.away
     observed = {
@@ -709,6 +790,7 @@ def _settle_shots(
     observation: FootballObservation,
     prediction: dict[str, Any],
     market: Market,
+    period: Period,
 ) -> SettlementResult:
     on_target = market in (
         Market.SHOTS_ON_TARGET_TOTAL,
@@ -717,18 +799,18 @@ def _settle_shots(
     )
     label = "remates a puerta" if on_target else "remates"
     attr = "shots_on_target" if on_target else "shots"
-    data: PeriodScore | None = getattr(observation, attr)
+    data: PeriodScore | None = _period_stat(observation, attr, period)
     line = prediction.get("line")
     selection = str(prediction.get("selection"))
 
-    if observation.went_to_extra_time:
+    if observation.went_to_extra_time and period == Period.FULL_TIME:
         return SettlementResult(
             status=NOT_EVALUABLE,
-            observed={"extra_time": True},
-            summary=f"No se pueden aislar los {label} de la regulación.",
+            observed={"period": period.value, "extra_time": True},
+            summary=f"No se pueden aislar los {label} de {period.value}.",
             reason=(
                 "La fuente reporta estadísticas del partido completo (incluido "
-                "alargue) y el mercado es de tiempo completo."
+                "alargue) y el periodo solicitado no puede aislarse."
             ),
         )
 
@@ -736,15 +818,18 @@ def _settle_shots(
         if data is None:
             return SettlementResult(
                 status=NOT_EVALUABLE,
-                observed={},
-                summary=f"La fuente no reporta {label}.",
-                reason="No hay estadísticas verificables del partido.",
+                observed={"period": period.value},
+                summary=f"La fuente no reporta {label} verificables para {period.value}.",
+                reason=(
+                    "No hay datos desglosados para este periodo; no se usa el "
+                    "total del partido para inferir una mitad."
+                ),
             )
         total = data.home + data.away
         status = _over_under(total, float(line), selection)
         return SettlementResult(
             status=status,
-            observed={"home": data.home, "away": data.away, "total": total, "line": line},
+            observed={"period": period.value, "home": data.home, "away": data.away, "total": total, "line": line},
             summary=f"{label.capitalize()} {data.home}-{data.away} (total {total}) vs línea {float(line):g}.",
         )
 
@@ -753,15 +838,19 @@ def _settle_shots(
         if data is None:
             return SettlementResult(
                 status=NOT_EVALUABLE,
-                observed={"team": team},
+                observed={"period": period.value, "team": team},
                 summary=f"La fuente no reporta {label} por equipo.",
-                reason="No hay estadísticas verificables del partido.",
+                reason=(
+                    "No hay datos desglosados para este periodo; no se usa el "
+                    "total del partido para inferir una mitad."
+                ),
             )
         value = _team_score(data, team)
         status = _over_under(value, float(line), selection)
         return SettlementResult(
             status=status,
             observed={
+                "period": period.value,
                 "home": data.home,
                 "away": data.away,
                 "team": team,
@@ -781,18 +870,19 @@ def _settle_shots(
         player_id=prediction.get("player_id"),
         team=prediction.get("team"),
         attribute=attr,
+        period=period,
     )
     if value is None:
         return SettlementResult(
             status=NOT_EVALUABLE,
-            observed={"player": name, "line": line},
+            observed={"period": period.value, "player": name, "line": line},
             summary=f"Sin datos verificables de {label} para {name}.",
             reason=note,
         )
     status = _over_under(value, float(line), selection)
     return SettlementResult(
         status=status,
-        observed={"player": name, "value": value, "line": line},
+        observed={"period": period.value, "player": name, "value": value, "line": line},
         summary=f"{name}: {value} {label} vs línea {float(line):g} ({note}).",
     )
 

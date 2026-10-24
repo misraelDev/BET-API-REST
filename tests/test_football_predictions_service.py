@@ -1,3 +1,4 @@
+import asyncio
 from datetime import UTC, date, datetime, timedelta
 
 import pytest
@@ -310,6 +311,42 @@ async def test_same_key_with_different_body_is_rejected():
 
 
 @pytest.mark.asyncio
+async def test_concurrent_same_key_replays_single_insert():
+    repository = FakeRepository()
+    subject = service(repository)
+    first, second = await asyncio.gather(
+        subject.register_batch(batch(payload())),
+        subject.register_batch(batch(payload())),
+    )
+    assert first.created + second.created == 1
+    assert first.replayed + second.replayed == 1
+    assert len(repository.documents) == 1
+
+
+@pytest.mark.asyncio
+async def test_concurrent_version_attempts_keep_one_current_version():
+    repository = FakeRepository()
+    subject = service(repository)
+    await subject.register_batch(batch(payload(prediction_id="abcdefgh")))
+    results = await asyncio.gather(
+        subject.register_batch(batch(payload(
+            prediction_id="abcdefgh",
+            idempotency_key="test-key-0002",
+            probability=60,
+        ))),
+        subject.register_batch(batch(payload(
+            prediction_id="abcdefgh",
+            idempotency_key="test-key-0003",
+            probability=70,
+        ))),
+    )
+    current = [item for item in repository.documents if item["is_current"]]
+    assert len(current) == 1
+    assert sum(result.created for result in results) == 2
+    assert sorted(item["version"] for item in repository.documents) == [1, 2, 3]
+
+
+@pytest.mark.asyncio
 async def test_new_version_never_overwrites_the_previous_one():
     repository = FakeRepository()
     subject = service(repository)
@@ -405,7 +442,10 @@ async def test_declared_kickoff_is_used_when_source_says_unknown():
     document = repository.documents[0]
     assert document["match"]["kickoff_source"] == "request"
     assert document["match"]["kickoff_verified"] is False
-    assert document["timing"]["status"] == "pre_match"
+    assert document["timing"] == {
+        "status": "unverified",
+        "received_before_kickoff": None,
+    }
 
 
 @pytest.mark.asyncio
@@ -477,7 +517,7 @@ async def test_list_filters_and_pagination():
     )
     assert pending.total == 3
     pre_match = await subject.list_predictions(timing="pre_match")
-    assert pre_match.total == 3
+    assert pre_match.total == 2
     page = await subject.list_predictions(page=2, page_size=2)
     assert page.total == 3
     assert len(page.items) == 1
@@ -536,6 +576,30 @@ async def test_detail_returns_all_versions():
 
 
 @pytest.mark.asyncio
+async def test_detail_keeps_latest_verified_pre_match_after_late_update():
+    repository = FakeRepository()
+    first = await service(repository).register_batch(
+        batch(payload(prediction_id="abcdefgh"))
+    )
+    later_clock = KICKOFF + timedelta(minutes=5)
+    second = await service(repository, clock=lambda: later_clock).register_batch(
+        batch(
+            payload(
+                prediction_id="abcdefgh",
+                idempotency_key="test-key-0002",
+                probability=71.0,
+            )
+        )
+    )
+
+    detail = await service(repository).get_prediction("abcdefgh")
+    assert second.items[0].version == 2
+    assert detail.current_version == 2
+    assert detail.latest_verified_pre_match_version == 1
+    assert detail.latest_verified_pre_match.version_id == first.items[0].version_id
+
+
+@pytest.mark.asyncio
 async def test_detail_unknown_id_raises():
     with pytest.raises(PredictionNotFound):
         await service(FakeRepository()).get_prediction("desconocido")
@@ -558,12 +622,17 @@ async def test_evaluation_is_linked_to_current_version_and_is_unique():
     subject = service(repository)
     await subject.register_batch(batch(payload(prediction_id="abcdefgh")))
 
-    stored = await subject.add_evaluation("abcdefgh", evaluation())
+    version_id = repository.documents[0]["version_id"]
+    stored = await subject.add_evaluation(
+        "abcdefgh", evaluation(version_id=version_id)
+    )
     assert stored.version == 1
     assert stored.prediction_id == "abcdefgh"
 
     with pytest.raises(RepositoryConflict):
-        await subject.add_evaluation("abcdefgh", evaluation())
+        await subject.add_evaluation(
+            "abcdefgh", evaluation(version_id=version_id)
+        )
 
     listed = await subject.list_evaluations("abcdefgh")
     assert listed.total == 1
@@ -586,13 +655,16 @@ async def test_evaluation_can_target_an_explicit_version():
     )
 
     stored = await subject.add_evaluation(
-        "abcdefgh", evaluation(version=1)
+        "abcdefgh",
+        evaluation(version_id=repository.documents[0]["version_id"]),
     )
     assert stored.version == 1
     assert stored.version_id == repository.documents[0]["version_id"]
 
     with pytest.raises(VersionNotFound):
-        await subject.add_evaluation("abcdefgh", evaluation(version=9))
+        await subject.add_evaluation(
+            "abcdefgh", evaluation(version_id="0" * 32)
+        )
 
 
 @pytest.mark.asyncio
@@ -614,7 +686,7 @@ async def test_settle_date_updates_current_versions():
     assert document["settlement_status"] == "acertado"
     assert document["settlement"]["observed"]["home_goals"] == 2
     assert document["settlement"]["source"]["name"] == "ESPN public summary"
-    assert document["settlement"]["rule_version"] == "football-settlement-v1"
+    assert document["settlement"]["rule_version"] == "football-settlement-v2"
 
 
 @pytest.mark.asyncio
@@ -630,6 +702,21 @@ async def test_settle_date_is_idempotent():
 
     assert second["predictions_updated"] == 0
     assert second["predictions_settled"] == 1
+
+
+@pytest.mark.asyncio
+async def test_registration_only_competition_is_not_auto_settled():
+    repository = FakeRepository()
+    provider = FakeObservationProvider({736644: observation()})
+    subject = service(repository, observation_provider=provider)
+    await subject.register_batch(
+        batch(payload(league="saudi_pro_league", prediction_id="abcdefgh"))
+    )
+    summary = await subject.settle_date(date(2026, 10, 24))
+    assert summary["predictions_pending"] == 1
+    assert summary["predictions_updated"] == 0
+    assert summary["errors"][0].stage == "coverage"
+    assert repository.documents[0]["settlement_status"] == "pendiente"
 
 
 @pytest.mark.asyncio

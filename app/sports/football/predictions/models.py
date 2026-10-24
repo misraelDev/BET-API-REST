@@ -44,6 +44,10 @@ def _half_step(value: float) -> bool:
     return abs(value * 2 - round(value * 2)) < 1e-9
 
 
+def _quarter_step(value: float) -> bool:
+    return abs(value * 4 - round(value * 4)) < 1e-9
+
+
 class PredictionSource(BaseModel):
     """Fuente consultada por el analista para respaldar su selección."""
 
@@ -121,7 +125,8 @@ class FootballPredictionCreate(BaseModel):
     idempotency_key: str = Field(
         pattern=IDEMPOTENCY_KEY_PATTERN,
         description=(
-            "Clave única del envío. Un reintento con la misma clave y el mismo "
+            "Clave única global en football_predictions (no por analista ni por "
+            "lote). Un reintento con la misma clave y el mismo "
             "cuerpo devuelve la versión existente; con un cuerpo distinto se "
             "rechaza como conflicto."
         ),
@@ -159,8 +164,8 @@ class FootballPredictionCreate(BaseModel):
         default=None,
         description=(
             "Inicio del partido con offset. El servidor intenta verificarlo "
-            "contra la fuente; si no lo logra, usa este valor como referencia "
-            "y marca kickoff_verified=false."
+            "contra la fuente. Si no lo logra, conserva este valor como "
+            "referencia, pero timing queda unverified."
         ),
         examples=["2026-10-24T20:00:00-06:00"],
     )
@@ -171,9 +176,9 @@ class FootballPredictionCreate(BaseModel):
     period: Period = Field(
         default=Period.FULL_TIME,
         description=(
-            "Periodo evaluado. full_time = 90 minutos + añadido, sin alargue ni "
-            "penales. second_half no acumula el primer tiempo. Córners, remates "
-            "y remates a puerta solo admiten full_time."
+            "Periodo evaluado. full_time = regulación, sin alargue ni penales. "
+            "second_half no acumula el primer tiempo. Las estadísticas se "
+            "liquidan por mitad solo si la fuente proporciona ese periodo."
         ),
         examples=["full_time"],
     )
@@ -190,9 +195,10 @@ class FootballPredictionCreate(BaseModel):
     line: float | None = Field(
         default=None,
         description=(
-            "Línea del mercado, en múltiplos de 0.5. En hándicaps se suma al "
-            "marcador del equipo elegido (local -1.5 se envía como -1.5). En "
-            "over/under debe ser positiva."
+            "Línea del mercado. asian_handicap admite incrementos de 0.25; los "
+            "demás mercados usan incrementos de 0.5. Para asian_handicap la "
+            "línea se aplica al lado seleccionado; en european_handicap se "
+            "aplica siempre al local. Over/under requiere línea positiva."
         ),
         examples=[-1.5],
     )
@@ -326,10 +332,15 @@ class FootballPredictionCreate(BaseModel):
             self.selection = self.selection.casefold()
 
         if self.line is not None:
-            if not _half_step(self.line):
+            valid_step = (
+                _quarter_step(self.line)
+                if self.market == Market.ASIAN_HANDICAP
+                else _half_step(self.line)
+            )
+            if not valid_step:
                 raise ValueError(
-                    "line debe ser múltiplo de 0.5; no se admiten líneas de "
-                    "cuartos (0.25 / 0.75) en esta entrega."
+                    "line debe ser múltiplo de 0.25 para asian_handicap y de "
+                    "0.5 para los demás mercados."
                 )
             if self.line == 0:
                 raise ValueError("line no puede ser 0.")
@@ -341,9 +352,10 @@ class FootballPredictionCreate(BaseModel):
                 raise ValueError(
                     f"El mercado {self.market.value} requiere line >= 0.5."
                 )
-            if not rule.positive_line and abs(self.line) < 0.5:
+            minimum = 0.25 if self.market == Market.ASIAN_HANDICAP else 0.5
+            if not rule.positive_line and abs(self.line) < minimum:
                 raise ValueError(
-                    f"El mercado {self.market.value} requiere |line| >= 0.5."
+                    f"El mercado {self.market.value} requiere |line| >= {minimum}."
                 )
         elif self.line is not None:
             raise ValueError(f"El mercado {self.market.value} no usa line.")
@@ -526,6 +538,10 @@ class FootballPredictionBatchItemResult(BaseModel):
     analyst: str
     probability: float
     received_before_kickoff: bool | None = None
+    record: StoredPrediction | None = Field(
+        default=None,
+        description="Versión persistida devuelta en creaciones y reintentos.",
+    )
 
 
 class FootballPredictionBatchResponse(BaseModel):
@@ -548,19 +564,35 @@ class FootballPredictionDetailResponse(BaseModel):
     prediction_id: str
     total_versions: int
     current_version: int | None = None
+    latest_verified_pre_match_version: int | None = None
+    latest_verified_pre_match: StoredPrediction | None = None
     versions: list[StoredPrediction]
 
 
 class FootballPredictionEvaluationCreate(BaseModel):
     """Diagnóstico posterior del analista. No modifica el pronóstico original."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={
+            "examples": [
+                {
+                    "version_id": "9a1c2e3f4b5d6a7c8e9f0a1b2c3d4e5f",
+                    "analyst": "ana.garcia",
+                    "diagnosis": "La lectura del primer tiempo fue acertada.",
+                    "learnings": ["Revisar alineaciones antes del cierre."],
+                    "sources": [{"name": "ESPN"}],
+                }
+            ]
+        },
+    )
 
-    version: int | None = Field(
-        default=None,
-        ge=1,
-        description="Versión evaluada. Si se omite, se usa la versión actual.",
-        examples=[1],
+    version_id: str = Field(
+        pattern=r"^[A-Fa-f0-9]{32}$",
+        min_length=8,
+        max_length=64,
+        description="Identificador exacto de la versión evaluada.",
+        examples=["9a1c2e3f4b5d6a7c8e9f0a1b2c3d4e5f"],
     )
     analyst: str = Field(
         min_length=2,
@@ -626,6 +658,7 @@ class FootballMarketRuleResponse(BaseModel):
     requires_player: bool
     requires_score: bool
     line_must_be_positive: bool
+    allowed_line_steps: list[float]
     settlement_rule: str
 
 
@@ -634,6 +667,8 @@ class FootballLeagueCatalogItem(BaseModel):
     name: str
     country: str
     source: str
+    registration_available: bool = True
+    automatic_settlement_available: bool = True
 
 
 class FootballMarketCatalogResponse(BaseModel):

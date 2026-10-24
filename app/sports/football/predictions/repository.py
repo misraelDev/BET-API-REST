@@ -142,6 +142,12 @@ class FootballPredictionRepository:
             name="prediction_current",
         )
         await self._predictions.create_index(
+            [("prediction_id", ASCENDING)],
+            unique=True,
+            partialFilterExpression={"is_current": True},
+            name="prediction_single_current",
+        )
+        await self._predictions.create_index(
             [("match.date", ASCENDING), ("is_current", ASCENDING)],
             name="prediction_match_date",
         )
@@ -173,6 +179,15 @@ class FootballPredictionRepository:
             ],
             unique=True,
             name="evaluation_identity",
+        )
+        await self._evaluations.create_index(
+            [
+                ("prediction_id", ASCENDING),
+                ("version_id", ASCENDING),
+                ("analyst", ASCENDING),
+            ],
+            unique=True,
+            name="evaluation_version_identity",
         )
         await self._evaluations.create_index(
             [("prediction_id", ASCENDING), ("created_at", DESCENDING)],
@@ -235,21 +250,41 @@ class FootballPredictionRepository:
     ) -> dict[str, Any]:
         now = datetime.now(UTC)
         if previous is not None:
-            await self._collection().update_one(
-                {"_id": previous["_id"]},
+            changed = await self._collection().update_one(
+                {
+                    "_id": previous["_id"],
+                    "version_id": previous["version_id"],
+                    "is_current": True,
+                },
                 {"$set": {"is_current": False, "updated_at": now}},
             )
+            if changed.modified_count != 1:
+                raise RepositoryConflict(
+                    "La versión vigente cambió en paralelo; reintenta con el historial actualizado."
+                )
         try:
             result = await self._collection().insert_one(document)
         except DuplicateKeyError:
             if previous is not None:
-                await self._collection().update_one(
-                    {"_id": previous["_id"]},
-                    {"$set": {"is_current": True}},
-                )
+                if await self._collection().count_documents(
+                    {"prediction_id": document["prediction_id"], "is_current": True}
+                ) == 0:
+                    await self._collection().update_one(
+                        {"_id": previous["_id"], "is_current": False},
+                        {"$set": {"is_current": True}},
+                    )
             raise RepositoryConflict(
                 "Ya existe una versión con ese prediction_id y version."
             ) from None
+        except Exception:
+            if previous is not None and await self._collection().count_documents(
+                {"prediction_id": document["prediction_id"], "is_current": True}
+            ) == 0:
+                await self._collection().update_one(
+                    {"_id": previous["_id"], "is_current": False},
+                    {"$set": {"is_current": True}},
+                )
+            raise
         stored = {**document, "_id": result.inserted_id}
         return prepare_document(stored)
 

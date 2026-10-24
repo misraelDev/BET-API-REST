@@ -7,7 +7,7 @@ cd C:\Users\Misrael\Documents\WEBS\BET\BET-API-REST
 .\.venv\Scripts\python.exe -m pytest -q
 ```
 
-La suite actual tiene **170 pruebas**.
+La suite actual tiene **188 pruebas**.
 
 ## Ejecutar un archivo concreto
 
@@ -32,6 +32,7 @@ La suite actual tiene **170 pruebas**.
 | `test_football_predictions_models.py` | Esquema del lote, validación mercado × periodo y líneas. |
 | `test_football_predictions_router.py` | Contrato HTTP: 201/200/409/422/503, listado, detalle y evaluaciones. |
 | `test_football_predictions_service.py` | Versionado, idempotencia, filtros, evaluaciones y liquidación por fecha. |
+| `test_football_predictions_repository.py` | Índices únicos, compare-and-set de versiones y recuperación ante colisiones. |
 | `test_football_settlement.py` | Motor de liquidación por mercado y periodo, incluida la segunda amarilla y el alargue. |
 | `test_official_results.py` | Resultados oficiales de béisbol. |
 | `test_predictor.py` | Cálculo de probabilidades (referencia histórica). |

@@ -420,8 +420,14 @@ servidor lo recibió antes del inicio.
 | `prediction_id` | Tú o el servidor | Identificador estable de la selección. Si lo omites, el servidor crea uno. Reenviarlo crea una **versión nueva**, nunca sobrescribe. |
 | `version` | Servidor | Entero consecutivo que empieza en 1. |
 | `version_id` | Servidor | Identificador único de esa versión concreta; es lo que se liquida y evalúa. |
-| `idempotency_key` | Tú | Clave única del envío. El mismo cuerpo con la misma clave devuelve la versión existente; un cuerpo distinto se rechaza como conflicto. |
+| `idempotency_key` | Tú | Clave única global en `football_predictions`, no por lote ni analista. Mismo cuerpo devuelve la versión original; cuerpo distinto es conflicto. |
 | `request_hash` | Servidor | Huella del cuerpo para comparar reintentos. |
+
+La clave es global para la colección nueva de pronósticos de fútbol. MongoDB
+impone su unicidad con índice único. Las versiones tienen índice único por
+`(prediction_id, version)`; el cambio de vigente compara atómicamente el
+`version_id` previo y un índice parcial garantiza como máximo una versión
+vigente por selección. Una carrera no pisa la versión ganadora.
 
 Al crear una versión nueva deben permanecer idénticos `event_id`, `market`,
 `period` y la identidad de la selección (`selection`, `line`, `team`, `player`,
@@ -436,15 +442,21 @@ La respuesta del lote trae `received_at`, `total`, `created`, `replayed`,
 | Código | Cuándo |
 | --- | --- |
 | `201` | Se creó al menos una versión nueva. |
-| `200` | Todas las selecciones eran reintentos idempotentes. |
+| `200` | No hubo creaciones y hay al menos un reintento válido; puede incluir rechazos de otros elementos. |
 | `409` | Ninguna selección se pudo aceptar (conflicto de clave o de identidad). |
-| `422` | El cuerpo completo no cumple el esquema o el mercado no admite el periodo. |
+| `422` | Cualquier elemento viola el esquema o una validación de campo/mercado: se rechaza el lote completo antes de procesarlo. |
+
+Una mezcla con creaciones, reintentos y rechazos devuelve `201` con el estado
+de cada elemento. Reintentos válidos + rechazos, sin creaciones, devuelve
+`200`; si todos se rechazan, devuelve `409`. Conflictos de idempotencia o
+identidad se devuelven por elemento. Errores Pydantic invalidan el lote
+completo con `422`.
 
 ### Campos de cada selección
 
 | Campo | Obligatorio | Descripción |
 | --- | --- | --- |
-| `idempotency_key` | Sí | 8–128 caracteres `A-Z a-z 0-9 . _ : -`. Única dentro de la petición y en la base. |
+| `idempotency_key` | Sí | 8–128 caracteres `A-Z a-z 0-9 . _ : -`. Única dentro del lote y globalmente en la colección `football_predictions`. |
 | `event_id` | Sí | Id del partido en ESPN. |
 | `match_date` | Sí | Jornada declarada en CDMX (`AAAA-MM-DD`). El servidor guarda en `match.date` la fecha derivada del `kickoff` conocido y conserva la declarada en `match.declared_date`. |
 | `league` | Sí | Código de liga del catálogo (`liga_mx`, `premier_league`...). |
@@ -452,7 +464,7 @@ La respuesta del lote trae `received_at`, `total`, `created`, `replayed`,
 | `market` | Sí | Código de mercado (ver tabla). |
 | `period` | No | `full_time` por defecto, `first_half` o `second_half`. |
 | `selection` | Según mercado | Valor permitido por el mercado. |
-| `line` | Según mercado | Múltiplo de 0.5, nunca 0. En over/under debe ser ≥ 0.5. En hándicaps se admite negativa y se suma al equipo elegido. |
+| `line` | Según mercado | No puede ser 0. Asian handicap: incrementos de 0.25. Otros mercados: incrementos de 0.5. Over/under debe ser ≥ 0.5. |
 | `team` | Según mercado | `home` o `away` para mercados por equipo. |
 | `player` / `player_id` | Según mercado | Jugador para mercados individuales. `player_id` mejora la identificación. |
 | `home_goals` / `away_goals` | Marcador exacto | Goles declarados para `exact_score`. |
@@ -462,7 +474,7 @@ La respuesta del lote trae `received_at`, `total`, `created`, `replayed`,
 | `sources` | Sí | Una o más fuentes con `name`, `url` opcional y `note` opcional. |
 | `analyst` | Sí | Identificador del analista. |
 | `method_version` | Sí | Versión del método usado. |
-| `kickoff` | Recomendado | ISO-8601 con offset. Se verifica contra ESPN; si no se puede, se usa como referencia y queda `kickoff_verified=false`. |
+| `kickoff` | Recomendado | ISO-8601 con offset. Si ESPN no lo confirma, se conserva como referencia pero no se usa para afirmar prepartido: queda `unverified`. |
 | `generated_at` | No | Hora declarada de generación, con offset. Se guarda aparte y **nunca** sustituye a `received_at`. |
 | `prediction_id` | No | Para versionar una selección existente. |
 | `notes` | No | Nota libre. |
@@ -486,6 +498,7 @@ prueba de cuándo llegó la selección.
 | `ligue_1` | Ligue 1 | Francia |
 | `champions_league` | UEFA Champions League | Europa |
 | `europa_league` | UEFA Europa League | Europa |
+| `conference_league` | UEFA Conference League | Europa |
 | `libertadores` | CONMEBOL Libertadores | Sudamérica |
 | `sudamericana` | CONMEBOL Sudamericana | Sudamérica |
 | `liga_betplay` | Liga BetPlay | Colombia |
@@ -494,8 +507,16 @@ prueba de cuándo llegó la selección.
 | `liga_1_peru` | Liga 1 | Perú |
 | `ligapro_ecuador` | LigaPro | Ecuador |
 | `primera_division_uruguay` | Primera División de Uruguay | Uruguay |
+| `saudi_pro_league` | Saudi Pro League | Arabia Saudita |
+| `qatar_stars_league` | Qatar Stars League | Qatar |
+| `afc_champions_league_elite` | AFC Champions League Elite | Asia |
+| `afc_champions_league_two` | AFC Champions League Two | Asia |
 
-`GET /predictions/markets` devuelve esta lista con el slug de ESPN de cada liga.
+Las cinco competiciones añadidas están habilitadas para **registro**, pero no
+para liquidación automática hasta verificar la cobertura de datos. El catálogo
+`GET /predictions/markets` distingue `registration_available` de
+`automatic_settlement_available`; no asumas que tener un slug basta para
+liquidar.
 
 ### Mercados y periodos
 
@@ -507,28 +528,37 @@ tiempo **no acumula** el primero.
 | `1x2` | `home`, `draw`, `away` | — | FT, 1T, 2T |
 | `double_chance` | `home_or_draw`, `home_or_away`, `draw_or_away` | — | FT, 1T, 2T |
 | `asian_handicap` | `home`, `away` | `line` | FT, 1T, 2T |
-| `european_handicap` | `home`, `away` | `line` | FT, 1T, 2T |
+| `european_handicap` | `home`, `draw`, `away` | `line` | FT, 1T, 2T |
 | `total_goals` | `over`, `under` | `line` | FT, 1T, 2T |
 | `team_total_goals` | `over`, `under` | `line`, `team` | FT, 1T, 2T |
 | `btts` | `yes`, `no` | — | FT, 1T, 2T |
-| `corners_total` | `over`, `under` | `line` | FT |
-| `corners_team` | `over`, `under` | `line`, `team` | FT |
-| `corners_handicap` | `home`, `away` | `line` | FT |
-| `corners_most` | `home`, `draw`, `away` | — | FT |
+| `corners_total` | `over`, `under` | `line` | FT, 1T, 2T |
+| `corners_team` | `over`, `under` | `line`, `team` | FT, 1T, 2T |
+| `corners_handicap` | `home`, `away` | `line` | FT, 1T, 2T |
+| `corners_most` | `home`, `draw`, `away` | — | FT, 1T, 2T |
 | `cards_total` | `over`, `under` | `line` | FT, 1T, 2T |
 | `cards_team` | `over`, `under` | `line`, `team` | FT, 1T, 2T |
 | `cards_player` | `over`, `under` | `line`, `player` | FT, 1T, 2T |
 | `exact_score` | — | `home_goals` y `away_goals` | FT, 1T, 2T |
 | `first_team_to_score` | `home`, `away`, `none` | — | FT, 1T, 2T |
-| `shots_total` | `over`, `under` | `line` | FT |
-| `shots_team` | `over`, `under` | `line`, `team` | FT |
-| `shots_player` | `over`, `under` | `line`, `player` | FT |
-| `shots_on_target_total` | `over`, `under` | `line` | FT |
-| `shots_on_target_team` | `over`, `under` | `line`, `team` | FT |
-| `shots_on_target_player` | `over`, `under` | `line`, `player` | FT |
+| `shots_total` | `over`, `under` | `line` | FT, 1T, 2T |
+| `shots_team` | `over`, `under` | `line`, `team` | FT, 1T, 2T |
+| `shots_player` | `over`, `under` | `line`, `player` | FT, 1T, 2T |
+| `shots_on_target_total` | `over`, `under` | `line` | FT, 1T, 2T |
+| `shots_on_target_team` | `over`, `under` | `line`, `team` | FT, 1T, 2T |
+| `shots_on_target_player` | `over`, `under` | `line`, `player` | FT, 1T, 2T |
 
-Córners, remates y remates a puerta solo admiten tiempo completo porque las
-fuentes no los separan por tiempo. Enviar otro periodo devuelve `422`.
+Todas las líneas salvo asian handicap son múltiplos de 0.5. Asian handicap
+admite cuartos y puede liquidar `media_ganancia` o `media_perdida`. Para
+european handicap, la línea se aplica siempre al local: por ejemplo, `line=-1`
+significa local -1; `selection` es el ganador del marcador ajustado (`home`,
+`draw` o `away`).
+
+Los mercados de córners, remates y remates a puerta admiten los tres periodos,
+pero solo se liquidan si la fuente entrega el dato desglosado para ese periodo.
+Si ESPN solo publica el total, la mitad queda `no_evaluable` con motivo; nunca
+se reutiliza el total del partido para inferir un tiempo. La fuente ESPN
+integrada actualmente no proporciona ese desglose de forma consistente.
 
 Quedan **fuera** de esta entrega: asistencias, goleadores individuales y
 porterías a cero.
@@ -537,27 +567,27 @@ porterías a cero.
 
 | Estado | Significado |
 | --- | --- |
-| `pre_match` | `received_at` es anterior al inicio verificado o declarado. |
+| `pre_match` | `received_at` es anterior a un inicio confirmado por ESPN. |
 | `late` | Llegó después del inicio. Se acepta, pero no cuenta como pre-partido. |
-| `unverified` | No hay ningún `kickoff` (ni de ESPN ni declarado); el servidor no puede afirmar si llegó antes. |
+| `unverified` | ESPN no confirmó el inicio, aunque se haya enviado `kickoff`; el servidor no puede afirmar si llegó antes. |
 
 `POST` no rechaza registros tardíos: los guarda con `timing.status=late` y
 `received_before_kickoff=false` para que puedas excluirlos de cualquier análisis
 pre-partido. Un `generated_at` manual nunca convierte un registro tardío en
 pre-partido.
 
-`match.kickoff_verified=true` solo cuando ESPN confirmó el inicio. Si únicamente
-existe el `kickoff` que declaraste, el estado se calcula contra esa hora y queda
-`kickoff_verified=false`: sirve para ordenar, pero no es prueba de la hora real.
-Si no hay ninguna de las dos, el estado es `unverified` y
-`received_before_kickoff` es `null`.
+`match.kickoff_verified=true` solo cuando ESPN confirmó el inicio. Si ESPN no
+lo confirma, la hora declarada se conserva en `match.kickoff` como referencia,
+pero `timing.status=unverified` y `received_before_kickoff=null`. No se utiliza
+esa hora para acreditar un registro verificablemente prepartido. `received_at`
+siempre lo crea el servidor; `generated_at` nunca lo sustituye.
 
 ### Liquidación
 
 `POST /api/v1/football/results/update` liquida las versiones vigentes del día.
 Cada selección guarda `settlement_status` y un objeto `settlement` con
 `observed`, `summary`, `reason`, `source`, `settled_at` y `rule_version`
-(`football-settlement-v1`).
+(`football-settlement-v2`).
 
 | Estado | Significado |
 | --- | --- |
@@ -565,19 +595,25 @@ Cada selección guarda `settlement_status` y un objeto `settlement` con
 | `acertado` | La selección coincidió con el resultado observado. |
 | `fallado` | No coincidió. |
 | `reembolso` | Empate en la línea o en el mercado (push). |
+| `media_ganancia` | Una de las dos mitades de una línea asiática de cuarto gana y la otra reembolsa. |
+| `media_perdida` | Una mitad de una línea asiática de cuarto pierde y la otra se reembolsa. |
 | `anulado` | Partido cancelado o abandonado. |
 | `no_evaluable` | La fuente no permite verificar el mercado o el periodo. |
 
 Reglas que conviene tener presentes:
 
 - **1X2 y doble oportunidad** comparan el marcador del periodo.
-- **Hándicap asiático**: la línea se suma al equipo elegido. Margen ajustado
-  cero es `reembolso`.
-- **Hándicap europeo**: el empate ajustado es `fallado`, no `reembolso`.
+- **Hándicap asiático**: la línea se suma al equipo elegido. En líneas `.25`
+  o `.75`, se liquida la mitad en cada línea adyacente de medio gol; esto puede
+  resultar en media ganancia, media pérdida o reembolso.
+- **Hándicap europeo**: `line` se aplica siempre al local. `selection` es el
+  resultado del marcador ajustado (`home`, `draw`, `away`); `draw` gana si los
+  marcadores ajustados empatan. No hay reembolso.
 - **Over/under**: total igual a la línea entera es `reembolso`; con línea .5
   siempre hay ganador.
-- **Córners**: solo tiempo completo. «Más córners» empatado es `reembolso`. El
-  hándicap de córners suma la línea a los córners del equipo elegido.
+- **Córners, remates y remates a puerta**: cualquier periodo solo se liquida
+  con datos comprobados para ese periodo. Nunca se reutiliza el total del juego
+  para liquidar una mitad. «Más córners» empatado es `reembolso`.
 - **Tarjetas**: cada tarjeta mostrada cuenta 1. Una segunda amarilla cuenta
   amarilla + roja (2) cuando la fuente la reporta; una roja directa cuenta 1. El
   total es amarillas + rojas. La fuente preferida son los eventos del partido.
@@ -606,10 +642,10 @@ diagnóstico en otra colección y lo liga a `prediction_id`, `version` y
 | Campo | Obligatorio | Descripción |
 | --- | --- | --- |
 | `analyst` | Sí | Analista que evalúa. |
+| `version_id` | Sí | ID exacto de la versión que se evalúa; no se infiere la vigente. |
 | `diagnosis` | Sí | Qué pasó y por qué, mínimo 10 caracteres. |
 | `learnings` | Sí | Lista de aprendizajes accionables. |
 | `sources` | Sí | Fuentes usadas en la evaluación. |
-| `version` | No | Versión evaluada; por defecto, la vigente. |
 | `outcome_comment` | No | Comentario sobre el resultado observado. |
 | `tags` | No | Etiquetas para agrupar aprendizajes. |
 
@@ -722,8 +758,11 @@ Para recuperar una selección concreta usa el detalle por `prediction_id`:
 Invoke-RestMethod "http://127.0.0.1:8000/api/v1/football/predictions/3d0f6f3e5c1a4f0ab1c2d3e4f5a6b7c8"
 ```
 
-Devuelve `prediction_id`, `total_versions`, `current_version` y `versions` en
-orden ascendente.
+Devuelve `prediction_id`, `total_versions`, `current_version`, el historial
+`versions` en orden ascendente y `latest_verified_pre_match` (la última
+versión recibida antes de un inicio confirmado). Esta última puede ser
+anterior a la actual si una actualización llegó tarde; si no hay versión
+verificada prepartido, ese campo y su número son `null`.
 
 ### Ver el catálogo de mercados
 
@@ -731,16 +770,16 @@ orden ascendente.
 Invoke-RestMethod "http://127.0.0.1:8000/api/v1/football/predictions/markets"
 ```
 
-Incluye la versión de reglas (`football-settlement-v1`), los periodos, los
-estados de liquidación con su significado, las 20 ligas y los 22 mercados con
-`requires_line`, `requires_team`, `requires_player`, `requires_score` y la regla
-de liquidación en texto.
+Incluye la versión de reglas (`football-settlement-v2`), los periodos, los
+estados (incluidas media ganancia/pérdida), las 25 ligas con disponibilidad
+separada de registro/liquidación y los 22 mercados con campos, pasos de línea,
+periodos admitidos y regla de liquidación.
 
 ## Errores frecuentes
 
 | Código | Causa habitual |
 | --- | --- |
-| `422` | Liga no válida, `event_id` ausente fuera de béisbol, `draw` en un deporte que no es fútbol, `odds <= 1` o `probability` fuera de 0–100. En pronósticos de fútbol también: mercado incompatible con el periodo, `line` que no es múltiplo de 0.5, falta `team`/`player`/`line` o una fecha sin offset. |
+| `422` | Liga o cuerpo inválido. En fútbol: cualquier elemento del lote que viole esquema, mercado/periodo, campos requeridos, pasos de línea o fecha sin offset invalida toda la petición. |
 | `409` | En pronósticos de fútbol: `idempotency_key` repetida con cuerpo distinto o versión nueva que cambia la identidad de la selección. En evaluaciones: ese analista ya evaluó esa versión. |
 | `404` | `prediction_id` o versión inexistente en pronósticos de fútbol. |
 | `503` | MongoDB no está disponible. |

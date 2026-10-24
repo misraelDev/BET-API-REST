@@ -263,10 +263,16 @@ class FootballPredictionService:
         try:
             stored = await self._repository.insert_version(document, previous)
         except RepositoryConflict:
-            # Carrera: otra petición con la misma clave o versión ganó.
-            existing = await self._repository.find_by_idempotency_key(
-                item.idempotency_key
-            )
+            # La operación que ganó puede haber confirmado el insert unos ms
+            # después de que la restricción única rechazó esta petición.
+            existing = None
+            for attempt in range(5):
+                existing = await self._repository.find_by_idempotency_key(
+                    item.idempotency_key
+                )
+                if existing is not None:
+                    break
+                await asyncio.sleep(0.01 * (attempt + 1))
             if existing is not None and existing.get("request_hash") == request_hash:
                 return self._replayed(existing)
             raise
@@ -285,14 +291,13 @@ class FootballPredictionService:
         provider_kickoff: datetime | None,
     ) -> dict[str, Any]:
         info = league_info(item.league)
+        kickoff_verified = provider_kickoff is not None
         if provider_kickoff is not None:
             kickoff = _utc(provider_kickoff)
             kickoff_source = KickoffSource.PROVIDER
-            kickoff_verified = True
         elif item.kickoff is not None:
             kickoff = _utc(item.kickoff)
             kickoff_source = KickoffSource.REQUEST
-            kickoff_verified = False
         elif previous is not None and previous.get("match", {}).get("kickoff"):
             kickoff = _utc(previous["match"]["kickoff"])
             kickoff_source = KickoffSource(
@@ -307,7 +312,7 @@ class FootballPredictionService:
             kickoff_source = KickoffSource.UNKNOWN
             kickoff_verified = False
 
-        if kickoff is None:
+        if kickoff is None or not kickoff_verified:
             timing_status = TimingStatus.UNVERIFIED
             received_before_kickoff = None
         else:
@@ -399,14 +404,18 @@ class FootballPredictionService:
         self, document: dict[str, Any]
     ) -> FootballPredictionBatchItemResult:
         return FootballPredictionBatchItemResult(
-            status="created", **self._summary_fields(document)
+            status="created",
+            record=StoredPrediction(**document),
+            **self._summary_fields(document),
         )
 
     def _replayed(
         self, document: dict[str, Any]
     ) -> FootballPredictionBatchItemResult:
         return FootballPredictionBatchItemResult(
-            status="replayed", **self._summary_fields(document)
+            status="replayed",
+            record=StoredPrediction(**document),
+            **self._summary_fields(document),
         )
 
     def _rejected(
@@ -500,16 +509,39 @@ class FootballPredictionService:
         current = next(
             (item for item in documents if item.get("is_current")), None
         )
+        pre_match = self._latest_verified_pre_match(documents)
         return FootballPredictionDetailResponse(
             prediction_id=prediction_id,
             total_versions=len(documents),
             current_version=(
                 int(current["version"]) if current is not None else None
             ),
+            latest_verified_pre_match_version=(
+                int(pre_match["version"]) if pre_match is not None else None
+            ),
+            latest_verified_pre_match=(
+                StoredPrediction(**pre_match) if pre_match is not None else None
+            ),
             versions=[
                 StoredPrediction(**document) for document in documents
             ],
         )
+
+    @staticmethod
+    def _latest_verified_pre_match(
+        documents: list[dict[str, Any]],
+    ) -> dict[str, Any] | None:
+        candidates = [
+            item
+            for item in documents
+            if (item.get("timing") or {}).get("status")
+            == TimingStatus.PRE_MATCH.value
+            and item.get("match", {}).get("kickoff_verified") is True
+            and (item.get("timing") or {}).get("received_before_kickoff") is True
+        ]
+        if not candidates:
+            return None
+        return max(candidates, key=lambda item: int(item["version"]))
 
     async def add_evaluation(
         self,
@@ -519,22 +551,17 @@ class FootballPredictionService:
         documents = await self._repository.list_versions(prediction_id)
         if not documents:
             raise PredictionNotFound(prediction_id)
-        if payload.version is None:
-            target = next(
-                (item for item in documents if item.get("is_current")), None
-            )
-        else:
-            target = next(
-                (
-                    item
-                    for item in documents
-                    if int(item["version"]) == payload.version
-                ),
-                None,
-            )
+        target = next(
+            (
+                item
+                for item in documents
+                if item["version_id"] == payload.version_id
+            ),
+            None,
+        )
         if target is None:
             raise VersionNotFound(
-                f"{prediction_id} versión {payload.version}"
+                f"{prediction_id} version_id {payload.version_id}"
             )
         now = _utc(self._clock())
         document = {
@@ -603,9 +630,24 @@ class FootballPredictionService:
         for event_id, group in grouped.items():
             league = str(group[0]["match"]["league"])
             try:
-                league_slug = league_info(league).espn_slug
+                info = league_info(league)
+                league_slug = info.espn_slug
             except (KeyError, ValueError):
+                info = None
                 league_slug = None
+            if info is not None and not info.automatic_settlement:
+                summary["predictions_pending"] += len(group)
+                summary["errors"].append(
+                    FootballResultsUpdateError(
+                        event_id=event_id,
+                        stage="coverage",
+                        message=(
+                            f"{info.name} está habilitada para registro, pero "
+                            "no tiene cobertura verificada para liquidación automática."
+                        ),
+                    )
+                )
+                continue
             try:
                 observation = await self._observation_provider.get_observation(
                     event_id, league_slug

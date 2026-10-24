@@ -212,6 +212,34 @@ def test_european_handicap_draw_loses():
 
 
 @pytest.mark.parametrize(
+    ("line", "expected"),
+    [
+        (-0.25, SettlementStatus.MEDIA_PERDIDA),
+        (0.25, SettlementStatus.MEDIA_GANANCIA),
+    ],
+)
+def test_asian_quarter_handicap_half_results(line, expected):
+    tied = observation(
+        regulation=PeriodScore(home=1, away=1),
+        first_half=PeriodScore(home=0, away=0),
+        second_half=PeriodScore(home=1, away=1),
+    )
+    result = settle_prediction(
+        prediction("asian_handicap", selection="home", line=line), tied
+    )
+    assert result.status == expected
+
+
+def test_european_handicap_draw_is_local_adjusted_draw():
+    result = settle_prediction(
+        prediction("european_handicap", selection="draw", line=-1),
+        observation(),
+    )
+    assert result.status == SettlementStatus.ACERTADO
+    assert result.observed["adjusted_result"] == "draw"
+
+
+@pytest.mark.parametrize(
     ("line", "selection", "expected"),
     [
         (2.5, "over", SettlementStatus.ACERTADO),
@@ -324,6 +352,38 @@ def test_corner_markets():
     assert total.status == SettlementStatus.ACERTADO
     assert handicap.status == SettlementStatus.ACERTADO
     assert most.status == SettlementStatus.ACERTADO
+
+
+def test_corner_half_never_falls_back_to_match_total():
+    result = settle_prediction(
+        prediction("corners_total", "first_half", selection="over", line=2.5),
+        observation(),
+    )
+    assert result.status == SettlementStatus.NO_EVALUABLE
+    assert "no se usa el total del partido" in result.reason
+
+
+def test_corner_and_shot_half_data_can_settle_when_explicitly_observed():
+    by_half = observation(
+        corners_by_period={"first_half": PeriodScore(home=2, away=1)},
+        shots_by_period={"second_half": PeriodScore(home=10, away=5)},
+        shots_on_target_by_period={"second_half": PeriodScore(home=3, away=2)},
+    )
+    corners = settle_prediction(
+        prediction("corners_total", "first_half", selection="over", line=2.5),
+        by_half,
+    )
+    shots = settle_prediction(
+        prediction("shots_total", "second_half", selection="over", line=14.5),
+        by_half,
+    )
+    sot = settle_prediction(
+        prediction("shots_on_target_total", "second_half", selection="over", line=4.5),
+        by_half,
+    )
+    assert corners.status == SettlementStatus.ACERTADO
+    assert shots.status == SettlementStatus.ACERTADO
+    assert sot.status == SettlementStatus.ACERTADO
 
 
 def test_corner_most_tie_is_refund():

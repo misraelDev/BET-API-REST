@@ -84,6 +84,32 @@ def test_post_replay_returns_200():
     data = response.json()
     assert data["replayed"] == 1
     assert len(repository.documents) == 1
+    assert data["items"][0]["record"]["probability"] == 58.0
+    assert data["items"][0]["record"]["market"] == "1x2"
+
+
+def test_post_mixed_replay_and_item_conflict_returns_200_with_both_results():
+    client, repository = make_client()
+    register(
+        client,
+        body(),
+        body(idempotency_key="http-key-0002", market="btts", selection="yes"),
+    )
+    replay = repository.documents[0]
+    conflict = repository.documents[1]
+    response = register(
+        client,
+        body(),
+        body(
+            idempotency_key=conflict["idempotency_key"],
+            market="btts",
+            selection="yes",
+            probability=88,
+        ),
+    )
+    assert response.status_code == 200
+    assert response.json()["replayed"] == 1
+    assert response.json()["rejected"] == 1
 
 
 def test_post_conflict_returns_409():
@@ -119,7 +145,7 @@ def test_post_mixed_batch_returns_201():
     assert data["total"] == 2
 
 
-def test_post_invalid_market_period_is_422():
+def test_post_corner_half_is_accepted_for_registration():
     client, _ = make_client()
 
     response = register(
@@ -132,8 +158,8 @@ def test_post_invalid_market_period_is_422():
         ),
     )
 
-    assert response.status_code == 422
-    assert "no admite el periodo" in response.text
+    assert response.status_code == 201
+    assert response.json()["created"] == 1
 
 
 def test_post_missing_sources_is_422():
@@ -254,13 +280,15 @@ def test_get_markets_catalog():
 
     assert response.status_code == 200
     data = response.json()
-    assert data["rule_version"] == "football-settlement-v1"
+    assert data["rule_version"] == "football-settlement-v2"
     assert set(data["periods"]) == {"full_time", "first_half", "second_half"}
     assert set(data["settlement_statuses"]) == {
         "pendiente",
         "acertado",
         "fallado",
         "reembolso",
+        "media_ganancia",
+        "media_perdida",
         "anulado",
         "no_evaluable",
     }
@@ -271,7 +299,14 @@ def test_get_markets_catalog():
         "first_half",
         "second_half",
     ]
-    assert markets["corners_total"]["periods"] == ["full_time"]
+    assert markets["corners_total"]["periods"] == [
+        "full_time", "first_half", "second_half"
+    ]
+    assert markets["asian_handicap"]["allowed_line_steps"] == [0.25]
+    assert len(data["leagues"]) == 25
+    saudi = next(item for item in data["leagues"] if item["code"] == "saudi_pro_league")
+    assert saudi["registration_available"] is True
+    assert saudi["automatic_settlement_available"] is False
     assert markets["corners_total"]["requires_line"] is True
     assert "reembolso" in markets["asian_handicap"]["settlement_rule"]
     assert any(item["code"] == "liga_mx" for item in data["leagues"])
@@ -279,8 +314,9 @@ def test_get_markets_catalog():
 
 def test_register_and_list_evaluations():
     client, _ = make_client()
-    register(client, body(prediction_id="abcdefgh"))
+    registered = register(client, body(prediction_id="abcdefgh"))
     payload = {
+        "version_id": registered.json()["items"][0]["version_id"],
         "analyst": "ana.garcia",
         "diagnosis": "El local dominó y sentenció en el segundo tiempo.",
         "learnings": ["La ventaja de localía pesó más que la forma reciente."],
@@ -309,6 +345,7 @@ def test_evaluation_for_unknown_prediction_returns_404():
     response = client.post(
         f"{PREDICTION_PATH}/zzzzzzzz/evaluations",
         json={
+            "version_id": "0" * 32,
             "analyst": "ana.garcia",
             "diagnosis": "No existe el pronóstico que se intenta evaluar.",
             "learnings": ["Verificar el identificador antes de evaluar."],

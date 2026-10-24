@@ -92,14 +92,14 @@ router (/api/v1/football/predictions)
 
 | Deporte | Fuente para liquidar | Versión del registro |
 | --- | --- | --- |
-| Fútbol | TheSportsDB (Liga MX, Brasileirão), ESPN (Leagues Cup) y resumen público de ESPN para los pronósticos versionados | `manual-v1` / `football-settlement-v1` |
+| Fútbol | TheSportsDB (Liga MX, Brasileirão), ESPN (Leagues Cup) y resumen público de ESPN para los pronósticos versionados | `manual-v1` / `football-settlement-v2` |
 | Básquetbol | ESPN public web (NBA, WNBA, Summer League) | `manual-v1` |
 | Béisbol | MLB public web y resultados oficiales de KBO | `manual-v1` |
 | Tenis | Scoreboard público de ESPN (ATP/WTA) | `manual-v1` |
 
 La API ya no calcula probabilidades: solo guarda, consulta y liquida lo que
 registra el analista. En fútbol, cada selección versionada se liquida con la
-regla `football-settlement-v1` y guarda la evidencia observada.
+regla `football-settlement-v2` y guarda la evidencia observada.
 
 ## Documentos relacionados
 

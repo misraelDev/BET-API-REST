@@ -7,6 +7,7 @@ from app.sports.football.predictions.models import (
     FootballPredictionBatchRequest,
     FootballPredictionCreate,
 )
+from app.sports.football.predictions.catalog import league_catalog, market_catalog
 
 
 def payload(**overrides):
@@ -45,16 +46,16 @@ def test_valid_one_x_two():
     ("market", "period"),
     [("corners_total", "first_half"), ("shots_total", "second_half")],
 )
-def test_corners_and_shots_are_full_time_only(market, period):
-    with pytest.raises(ValidationError, match="no admite el periodo"):
-        FootballPredictionCreate(
-            **payload(
-                market=market,
-                period=period,
-                selection="over",
-                line=9.5,
-            )
+def test_corners_and_shots_accept_halves(market, period):
+    item = FootballPredictionCreate(
+        **payload(
+            market=market,
+            period=period,
+            selection="over",
+            line=9.5,
         )
+    )
+    assert item.period.value == period
 
 
 def test_cards_support_halves():
@@ -78,10 +79,46 @@ def test_total_goals_requires_line():
 
 
 def test_line_must_be_half_step():
-    with pytest.raises(ValidationError, match="múltiplo de 0.5"):
+    with pytest.raises(ValidationError, match="múltiplo de 0.25"):
         FootballPredictionCreate(
             **payload(market="total_goals", selection="over", line=2.25)
         )
+
+
+def test_asian_handicap_accepts_quarter_line():
+    item = FootballPredictionCreate(
+        **payload(market="asian_handicap", selection="home", line=-0.25)
+    )
+    assert item.line == -0.25
+
+
+def test_european_handicap_accepts_draw_selection():
+    item = FootballPredictionCreate(
+        **payload(market="european_handicap", selection="draw", line=-1)
+    )
+    assert item.selection == "draw"
+
+
+def test_added_competitions_are_registerable_without_claiming_auto_coverage():
+    leagues = {item["code"]: item for item in league_catalog()}
+    for code in (
+        "saudi_pro_league",
+        "qatar_stars_league",
+        "afc_champions_league_elite",
+        "afc_champions_league_two",
+        "conference_league",
+    ):
+        assert leagues[code]["registration_available"] is True
+        assert leagues[code]["automatic_settlement_available"] is False
+
+
+def test_catalog_does_not_add_markets_and_exposes_steps_and_periods():
+    markets = {item["market"]: item for item in market_catalog()}
+    assert len(markets) == 22
+    assert markets["asian_handicap"]["allowed_line_steps"] == [0.25]
+    assert {"full_time", "first_half", "second_half"} <= set(
+        markets["shots_total"]["periods"]
+    )
 
 
 def test_team_market_requires_team():

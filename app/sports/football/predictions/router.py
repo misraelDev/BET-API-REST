@@ -136,9 +136,8 @@ _VALIDATION_EXAMPLE: dict[str, Any] = {
         {
             "type": "value_error",
             "loc": ["body", "items", 0],
-            "msg": "Value error, El mercado corners_total no admite el periodo "
-            "first_half. Periodos válidos: full_time.",
-            "input": {"market": "corners_total", "period": "first_half"},
+            "msg": "Value error, line debe ser múltiplo de 0.25 para asian_handicap y de 0.5 para los demás mercados.",
+            "input": {"market": "total_goals", "line": 2.25},
         }
     ]
 }
@@ -172,16 +171,28 @@ _CONFLICT_EXAMPLE: dict[str, Any] = {
     "rejected": 1,
     "items": [
         {
-            "prediction_id": "3d0f6f3e5c1a4f0ab1c2d3e4f5a6b7c8",
+            "prediction_id": "6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e",
             "version": None,
             "version_id": None,
-            "idempotency_key": "2026-10-24-liga-mx-736644-1x2-home",
+            "idempotency_key": "2026-10-24-liga-mx-736644-total-goals-over-2.5",
             "status": "rejected",
             "error": "idempotency_key ya existe con un cuerpo distinto.",
             "analyst": "ana.garcia",
             "probability": 58.0,
             "received_before_kickoff": None,
         }
+    ],
+}
+
+_MIXED_RESPONSE_EXAMPLE: dict[str, Any] = {
+    "received_at": "2026-10-24T17:12:00Z",
+    "total": 2,
+    "created": 0,
+    "replayed": 1,
+    "rejected": 1,
+    "items": [
+        _REPLAY_RESPONSE_EXAMPLE["items"][0],
+        _CONFLICT_EXAMPLE["items"][0],
     ],
 }
 
@@ -240,6 +251,9 @@ _STORED_PREDICTION_EXAMPLE: dict[str, Any] = {
     "updated_at": "2026-10-24T17:05:12.345678Z",
 }
 
+_BATCH_RESPONSE_EXAMPLE["items"][0]["record"] = _STORED_PREDICTION_EXAMPLE
+_REPLAY_RESPONSE_EXAMPLE["items"][0]["record"] = _STORED_PREDICTION_EXAMPLE
+
 _LIST_RESPONSE_EXAMPLE: dict[str, Any] = {
     "items": [_STORED_PREDICTION_EXAMPLE],
     "page": 1,
@@ -251,6 +265,8 @@ _DETAIL_RESPONSE_EXAMPLE: dict[str, Any] = {
     "prediction_id": "3d0f6f3e5c1a4f0ab1c2d3e4f5a6b7c8",
     "total_versions": 1,
     "current_version": 1,
+    "latest_verified_pre_match_version": 1,
+    "latest_verified_pre_match": _STORED_PREDICTION_EXAMPLE,
     "versions": [_STORED_PREDICTION_EXAMPLE],
 }
 
@@ -341,13 +357,17 @@ async def prediction_catalog() -> FootballMarketCatalogResponse:
     status_code=status.HTTP_201_CREATED,
     summary="Registra un lote de selecciones",
     description=(
-        "Cada elemento del lote se guarda y liquida por separado. El servidor "
-        "genera received_at en UTC; received_before_kickoff compara esa hora "
-        "con el inicio verificado en la fuente (o con el kickoff declarado si "
-        "la fuente no responde). Reenviar la misma idempotency_key con el "
+        "Cada elemento del lote se guarda por separado. Errores de esquema o "
+        "validación Pydantic invalidan el lote completo con 422; conflictos de "
+        "negocio se devuelven en el elemento afectado. received_at siempre lo "
+        "genera el servidor. Solo un inicio verificado permite declarar "
+        "pre_match/late; el kickoff declarado sin verificación queda como "
+        "referencia y timing=unverified. Reenviar la misma idempotency_key con el "
         "mismo cuerpo devuelve la versión existente; con otro cuerpo se "
-        "rechaza ese elemento. Responder 201 si se creó al menos una versión, "
-        "200 si todas fueron repeticiones y 409 si todas fueron rechazadas."
+        "rechaza ese elemento. Responder 201 si hubo creaciones; 200 si no "
+        "hubo creaciones y existe al menos "
+        "un reintento válido (puede incluir rechazos); 409 si todos los elementos "
+        "fueron rechazados."
     ),
     responses={
         201: {
@@ -357,12 +377,14 @@ async def prediction_catalog() -> FootballMarketCatalogResponse:
             },
         },
         200: {
-            "description": "Todas las selecciones eran reintentos idempotentes.",
+            "model": FootballPredictionBatchResponse,
+            "description": "No hubo creaciones y al menos un reintento válido; puede incluir rechazos por elemento.",
             "content": {
-                "application/json": {"example": _REPLAY_RESPONSE_EXAMPLE}
+                "application/json": {"example": _MIXED_RESPONSE_EXAMPLE}
             },
         },
         409: {
+            "model": FootballPredictionBatchResponse,
             "description": "Ninguna selección se pudo aceptar.",
             "content": {"application/json": {"example": _CONFLICT_EXAMPLE}},
         },

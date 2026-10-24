@@ -39,15 +39,20 @@
 - Las plantillas se consideran completas solo si ambos equipos listan al menos
   11 jugadores. Con plantilla parcial no se deduce un cero para un jugador
   ausente: el mercado queda `no_evaluable`.
-- Córners, remates y remates a puerta solo existen para tiempo completo; las
-  fuentes no los separan por tiempo. Los goles y las tarjetas sí admiten primer
-  y segundo tiempo.
+- Córners, remates y remates a puerta aceptan registro por periodo. Sin embargo,
+  el parser integrado de ESPN hoy solo extrae estadísticas agregadas; los picks
+  de 1T/2T quedan `no_evaluable` con motivo hasta que una fuente entregue datos
+  verificables por periodo. Nunca se infiere una mitad del total del partido.
 - En partidos con alargue o penales, `full_time` usa la regulación (primeros dos
   parciales). Córners y remates de esos partidos quedan `no_evaluable` porque la
   estadística incluye el tiempo extra. Las tarjetas se cuentan con los eventos
   de regulación.
-- No se admiten líneas de cuartos (0.25 / 0.75) en esta entrega; solo múltiplos
-  de 0.5.
+- Asian handicap admite líneas de cuarto; las otras líneas son múltiplos de
+  0.5. Se liquidan media ganancia y media pérdida. Las reglas nuevas usan
+  `football-settlement-v2`; las liquidaciones antiguas conservan su versión.
+- Saudi Pro League, Qatar Stars League, AFC Champions League Elite, AFC
+  Champions League Two y UEFA Conference League están disponibles para
+  registro, pero explícitamente sin liquidación automática verificada.
 - `POST /api/v1/football/results/update` liquida como máximo 500 pronósticos
   vigentes por fecha en cada ejecución.
 - La liquidación oficial no la hacen los endpoints del analista. La evaluación

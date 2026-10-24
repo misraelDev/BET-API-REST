@@ -29,6 +29,7 @@ class FootballLeague(StrEnum):
     LIGUE_1 = "ligue_1"
     CHAMPIONS_LEAGUE = "champions_league"
     EUROPA_LEAGUE = "europa_league"
+    CONFERENCE_LEAGUE = "conference_league"
     LIBERTADORES = "libertadores"
     SUDAMERICANA = "sudamericana"
     LIGA_BETPLAY = "liga_betplay"
@@ -37,6 +38,10 @@ class FootballLeague(StrEnum):
     LIGA_1_PERU = "liga_1_peru"
     LIGAPRO_ECUADOR = "ligapro_ecuador"
     PRIMERA_DIVISION_URUGUAY = "primera_division_uruguay"
+    SAUDI_PRO_LEAGUE = "saudi_pro_league"
+    QATAR_STARS_LEAGUE = "qatar_stars_league"
+    AFC_CHAMPIONS_LEAGUE_ELITE = "afc_champions_league_elite"
+    AFC_CHAMPIONS_LEAGUE_TWO = "afc_champions_league_two"
 
 
 @dataclass(frozen=True)
@@ -45,6 +50,7 @@ class LeagueInfo:
     name: str
     espn_slug: str
     country: str
+    automatic_settlement: bool = True
 
 
 LEAGUES: dict[FootballLeague, LeagueInfo] = {
@@ -99,6 +105,13 @@ LEAGUES: dict[FootballLeague, LeagueInfo] = {
         "uefa.europa",
         "Europa",
     ),
+    FootballLeague.CONFERENCE_LEAGUE: LeagueInfo(
+        FootballLeague.CONFERENCE_LEAGUE,
+        "UEFA Conference League",
+        "uefa.europa.conf",
+        "Europa",
+        False,
+    ),
     FootballLeague.LIBERTADORES: LeagueInfo(
         FootballLeague.LIBERTADORES,
         "CONMEBOL Libertadores",
@@ -141,6 +154,22 @@ LEAGUES: dict[FootballLeague, LeagueInfo] = {
         "uru.1",
         "Uruguay",
     ),
+    FootballLeague.SAUDI_PRO_LEAGUE: LeagueInfo(
+        FootballLeague.SAUDI_PRO_LEAGUE, "Saudi Pro League", "ksa.1",
+        "Arabia Saudita", False,
+    ),
+    FootballLeague.QATAR_STARS_LEAGUE: LeagueInfo(
+        FootballLeague.QATAR_STARS_LEAGUE, "Qatar Stars League", "qat.1",
+        "Qatar", False,
+    ),
+    FootballLeague.AFC_CHAMPIONS_LEAGUE_ELITE: LeagueInfo(
+        FootballLeague.AFC_CHAMPIONS_LEAGUE_ELITE,
+        "AFC Champions League Elite", "afc.champions", "Asia", False,
+    ),
+    FootballLeague.AFC_CHAMPIONS_LEAGUE_TWO: LeagueInfo(
+        FootballLeague.AFC_CHAMPIONS_LEAGUE_TWO,
+        "AFC Champions League Two", "afc.cup", "Asia", False,
+    ),
 }
 
 ESPN_SLUGS: tuple[str, ...] = tuple(
@@ -165,7 +194,6 @@ GOALS_PERIODS: tuple[Period, ...] = (
     Period.FIRST_HALF,
     Period.SECOND_HALF,
 )
-FULL_TIME_ONLY: tuple[Period, ...] = (Period.FULL_TIME,)
 
 
 class Market(StrEnum):
@@ -224,13 +252,16 @@ _OU_RULE = (
     "línea, gana «over»; si es menor, gana «under». Con línea entera y total "
     "exactamente igual, el estado es «reembolso»."
 )
-_HANDICAP_RULE = (
-    "La línea se suma al marcador del equipo elegido. Si el resultado ajustado "
-    "es positivo gana la selección; si es negativo pierde; si es cero, "
-    "«reembolso» en hándicap asiático y «fallado» en hándicap europeo (el "
-    "empate ajustado es un resultado perdedor en el hándicap europeo de tres "
-    "vías). La línea debe ser múltiplo de 0.5; no se admiten líneas de cuartos "
-    "(0.25 / 0.75) en esta entrega."
+_ASIAN_HANDICAP_RULE = (
+    "La línea es el hándicap aplicado al equipo seleccionado; se admiten "
+    "incrementos de 0.25. Las líneas de cuarto se dividen en dos mitades y "
+    "pueden liquidar como acertado, fallado, reembolso, media ganancia o "
+    "media pérdida."
+)
+_EUROPEAN_HANDICAP_RULE = (
+    "La línea se aplica siempre al equipo local (por ejemplo, -1 significa "
+    "local -1). selection es el resultado del marcador ajustado: home, draw o "
+    "away. El empate ajustado solo gana si selection=draw; no hay reembolso."
 )
 
 MARKET_RULES: dict[Market, MarketRule] = {
@@ -260,15 +291,15 @@ MARKET_RULES: dict[Market, MarketRule] = {
         GOALS_PERIODS,
         MARKET_SIDES,
         needs_line=True,
-        settlement_rule=_HANDICAP_RULE,
+        settlement_rule=_ASIAN_HANDICAP_RULE,
     ),
     Market.EUROPEAN_HANDICAP: MarketRule(
         Market.EUROPEAN_HANDICAP,
         "Hándicap europeo",
         GOALS_PERIODS,
-        MARKET_SIDES,
+        MARKET_1X2,
         needs_line=True,
-        settlement_rule=_HANDICAP_RULE,
+        settlement_rule=_EUROPEAN_HANDICAP_RULE,
     ),
     Market.TOTAL_GOALS: MarketRule(
         Market.TOTAL_GOALS,
@@ -305,35 +336,36 @@ MARKET_RULES: dict[Market, MarketRule] = {
     Market.CORNERS_TOTAL: MarketRule(
         Market.CORNERS_TOTAL,
         "Córners totales",
-        FULL_TIME_ONLY,
+        GOALS_PERIODS,
         MARKET_OVER_UNDER,
         needs_line=True,
         positive_line=True,
         settlement_rule=(
-            "Solo tiempo completo (las fuentes no separan córners por tiempo). "
+            "Usa solo los datos del periodo solicitado; si falta el desglose no "
+            "se infiere desde el total del partido. "
             + _OU_RULE
         ),
     ),
     Market.CORNERS_TEAM: MarketRule(
         Market.CORNERS_TEAM,
         "Córners por equipo",
-        FULL_TIME_ONLY,
+        GOALS_PERIODS,
         MARKET_OVER_UNDER,
         needs_line=True,
         needs_team=True,
         positive_line=True,
         settlement_rule=(
-            "Solo tiempo completo. " + _OU_RULE
+            "Usa solo los datos del periodo solicitado. " + _OU_RULE
         ),
     ),
     Market.CORNERS_HANDICAP: MarketRule(
         Market.CORNERS_HANDICAP,
         "Hándicap de córners",
-        FULL_TIME_ONLY,
+        GOALS_PERIODS,
         MARKET_SIDES,
         needs_line=True,
         settlement_rule=(
-            "Solo tiempo completo. La línea se suma a los córners del equipo "
+            "Usa solo los datos del periodo solicitado. La línea se suma a los córners del equipo "
             "elegido: margen ajustado positivo gana, negativo pierde y cero es "
             "«reembolso». La línea debe ser múltiplo de 0.5."
         ),
@@ -341,10 +373,10 @@ MARKET_RULES: dict[Market, MarketRule] = {
     Market.CORNERS_MOST: MarketRule(
         Market.CORNERS_MOST,
         "Más córners",
-        FULL_TIME_ONLY,
+        GOALS_PERIODS,
         ("home", "draw", "away"),
         settlement_rule=(
-            "Solo tiempo completo. Gana el equipo con más córners; si ambos "
+            "Usa solo los datos del periodo solicitado. Gana el equipo con más córners; si ambos "
             "empatan, el estado es «reembolso»."
         ),
     ),
@@ -414,12 +446,12 @@ MARKET_RULES: dict[Market, MarketRule] = {
     Market.SHOTS_TOTAL: MarketRule(
         Market.SHOTS_TOTAL,
         "Remates totales",
-        FULL_TIME_ONLY,
+        GOALS_PERIODS,
         MARKET_OVER_UNDER,
         needs_line=True,
         positive_line=True,
         settlement_rule=(
-            "Solo tiempo completo. «Remate» es el valor totalShots que ESPN "
+            "«Remate» es el valor totalShots que ESPN "
             "publica para el equipo (todos los intentos que la fuente cuenta); "
             "los bloqueados se publican aparte en blockedShots y no se suman. "
             + _OU_RULE
@@ -428,35 +460,35 @@ MARKET_RULES: dict[Market, MarketRule] = {
     Market.SHOTS_TEAM: MarketRule(
         Market.SHOTS_TEAM,
         "Remates por equipo",
-        FULL_TIME_ONLY,
+        GOALS_PERIODS,
         MARKET_OVER_UNDER,
         needs_line=True,
         needs_team=True,
         positive_line=True,
-        settlement_rule="Solo tiempo completo. " + _OU_RULE,
+        settlement_rule="Usa solo estadísticas del periodo solicitado. " + _OU_RULE,
     ),
     Market.SHOTS_PLAYER: MarketRule(
         Market.SHOTS_PLAYER,
         "Remates por jugador",
-        FULL_TIME_ONLY,
+        GOALS_PERIODS,
         MARKET_OVER_UNDER,
         needs_line=True,
         needs_player=True,
         positive_line=True,
         settlement_rule=(
-            "Solo tiempo completo. Si el jugador no participó y la plantilla "
+            "Si el jugador no participó y la plantilla "
             "está disponible, su total es 0. " + _OU_RULE
         ),
     ),
     Market.SHOTS_ON_TARGET_TOTAL: MarketRule(
         Market.SHOTS_ON_TARGET_TOTAL,
         "Remates a puerta totales",
-        FULL_TIME_ONLY,
+        GOALS_PERIODS,
         MARKET_OVER_UNDER,
         needs_line=True,
         positive_line=True,
         settlement_rule=(
-            "Solo tiempo completo. «Remate a puerta» es el valor "
+            "«Remate a puerta» es el valor "
             "shotsOnTarget de ESPN: remate dirigido entre los tres palos que "
             "el portero detiene o que termina en gol. " + _OU_RULE
         ),
@@ -464,23 +496,23 @@ MARKET_RULES: dict[Market, MarketRule] = {
     Market.SHOTS_ON_TARGET_TEAM: MarketRule(
         Market.SHOTS_ON_TARGET_TEAM,
         "Remates a puerta por equipo",
-        FULL_TIME_ONLY,
+        GOALS_PERIODS,
         MARKET_OVER_UNDER,
         needs_line=True,
         needs_team=True,
         positive_line=True,
-        settlement_rule="Solo tiempo completo. " + _OU_RULE,
+        settlement_rule="Usa solo estadísticas del periodo solicitado. " + _OU_RULE,
     ),
     Market.SHOTS_ON_TARGET_PLAYER: MarketRule(
         Market.SHOTS_ON_TARGET_PLAYER,
         "Remates a puerta por jugador",
-        FULL_TIME_ONLY,
+        GOALS_PERIODS,
         MARKET_OVER_UNDER,
         needs_line=True,
         needs_player=True,
         positive_line=True,
         settlement_rule=(
-            "Solo tiempo completo. Si el jugador no participó y la plantilla "
+            "Si el jugador no participó y la plantilla "
             "está disponible, su total es 0. " + _OU_RULE
         ),
     ),
@@ -492,6 +524,8 @@ class SettlementStatus(StrEnum):
     ACERTADO = "acertado"
     FALLADO = "fallado"
     REEMBOLSO = "reembolso"
+    MEDIA_GANANCIA = "media_ganancia"
+    MEDIA_PERDIDA = "media_perdida"
     ANULADO = "anulado"
     NO_EVALUABLE = "no_evaluable"
 
@@ -501,6 +535,8 @@ SETTLEMENT_STATUS_LABELS: dict[SettlementStatus, str] = {
     SettlementStatus.ACERTADO: "La selección coincidió con el resultado observado.",
     SettlementStatus.FALLADO: "La selección no coincidió con el resultado observado.",
     SettlementStatus.REEMBOLSO: "El mercado se anuló por empate en la línea o en el mercado.",
+    SettlementStatus.MEDIA_GANANCIA: "Media ganancia de una línea asiática de cuarto.",
+    SettlementStatus.MEDIA_PERDIDA: "Media pérdida de una línea asiática de cuarto.",
     SettlementStatus.ANULADO: "El partido se canceló o abandonó.",
     SettlementStatus.NO_EVALUABLE: "La fuente no permite verificar el mercado o periodo.",
 }
@@ -518,7 +554,7 @@ class KickoffSource(StrEnum):
     UNKNOWN = "unknown"
 
 
-RULE_VERSION = "football-settlement-v1"
+RULE_VERSION = "football-settlement-v2"
 
 
 def league_info(league: FootballLeague | str) -> LeagueInfo:
@@ -543,19 +579,25 @@ def market_catalog() -> list[dict[str, object]]:
             "requires_player": rule.needs_player,
             "requires_score": rule.needs_score,
             "line_must_be_positive": rule.positive_line,
+            "allowed_line_steps": (
+                [0.25] if rule.market == Market.ASIAN_HANDICAP
+                else [0.5] if rule.needs_line else []
+            ),
             "settlement_rule": rule.settlement_rule,
         }
         for rule in MARKET_RULES.values()
     ]
 
 
-def league_catalog() -> list[dict[str, str]]:
+def league_catalog() -> list[dict[str, object]]:
     return [
         {
             "code": info.code.value,
             "name": info.name,
             "country": info.country,
             "source": f"ESPN ({info.espn_slug})",
+            "registration_available": True,
+            "automatic_settlement_available": info.automatic_settlement,
         }
         for info in LEAGUES.values()
     ]
@@ -563,7 +605,6 @@ def league_catalog() -> list[dict[str, str]]:
 
 __all__ = [
     "ESPN_SLUGS",
-    "FULL_TIME_ONLY",
     "GOALS_PERIODS",
     "KickoffSource",
     "LEAGUES",

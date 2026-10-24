@@ -51,6 +51,12 @@ TARGETS: list[dict[str, Any]] = [
         "title": "BET Analytics API - Fútbol",
         "sport": "fútbol",
         "prefixes": ["/api/v1/football"],
+        "extra_servers": [
+            {
+                "url": "https://start-bet-api-rest.xzpbpr.easypanel.host",
+                "description": "Desarrollo",
+            }
+        ],
     },
     {
         "file": "nba.yaml",
@@ -184,7 +190,10 @@ def build_sport_spec(base: dict[str, Any], target: dict[str, Any]) -> dict[str, 
     }
     if components:
         spec["components"] = components
-    spec["servers"] = base["servers"]
+    spec["servers"] = [
+        *base["servers"],
+        *target.get("extra_servers", []),
+    ]
     spec["tags"] = [tag for tag in base["tags"] if tag["name"] in used_tags]
     return spec
 

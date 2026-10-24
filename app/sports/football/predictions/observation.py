@@ -70,6 +70,7 @@ class PlayerObservation(BaseModel):
     shots_on_target: int | None = None
     yellow_cards: int | None = None
     red_cards: int | None = None
+    period_stats: dict[str, dict[str, int | None]] = Field(default_factory=dict)
 
 
 class ObservationSource(BaseModel):
@@ -97,8 +98,11 @@ class FootballObservation(BaseModel):
     cards: dict[str, CardTotals] | None = None
     card_events: list[CardEvent] = Field(default_factory=list)
     corners: PeriodScore | None = None
+    corners_by_period: dict[str, PeriodScore] = Field(default_factory=dict)
     shots: PeriodScore | None = None
+    shots_by_period: dict[str, PeriodScore] = Field(default_factory=dict)
     shots_on_target: PeriodScore | None = None
+    shots_on_target_by_period: dict[str, PeriodScore] = Field(default_factory=dict)
     players: list[PlayerObservation] = Field(default_factory=list)
     rosters_complete: bool = False
     events_complete: bool = False
