@@ -4,7 +4,7 @@ info:
   description: Contrato OpenAPI de sistema. Incluye solo las rutas `/health`, `/api/v1/sports`, `/api/v1/records`
     y los esquemas que esas rutas referencian. El resto de deportes está en archivos separados dentro
     de `openapi/`.
-  version: 1.5.0
+  version: 1.6.0
   contact:
     name: BET Analytics
   license:
@@ -208,8 +208,7 @@ components:
           description: Id del visitante o jugador dos en la fuente.
         markets:
           anyOf:
-          - additionalProperties: true
-            type: object
+          - type: object
           - type: 'null'
           title: Markets
           description: Mercados adicionales con la forma que espera la liquidación. Si se omite, solo
@@ -291,7 +290,6 @@ components:
           type: string
           title: Timezone
         prediction:
-          additionalProperties: true
           type: object
           title: Prediction
         analysis_prompt:
@@ -314,8 +312,7 @@ components:
           title: Created At
         settlement:
           anyOf:
-          - additionalProperties: true
-            type: object
+          - type: object
           - type: 'null'
           title: Settlement
       type: object

@@ -3,7 +3,7 @@ info:
   title: BET Analytics API - Tenis
   description: Contrato OpenAPI de tenis (ATP/WTA). Incluye solo las rutas `/api/v1/tennis` y los esquemas
     que esas rutas referencian. El resto de deportes está en archivos separados dentro de `openapi/`.
-  version: 1.5.0
+  version: 1.6.0
   contact:
     name: BET Analytics
   license:
@@ -97,7 +97,6 @@ paths:
             maximum: 200
             minimum: 1
           - type: 'null'
-          deprecated: true
           title: Limit
         deprecated: true
       - name: hour
@@ -124,8 +123,8 @@ paths:
         schema:
           anyOf:
           - type: number
-            maximum: 100
-            minimum: 0
+            maximum: 100.0
+            minimum: 0.0
           - type: 'null'
           title: Min Probability
       responses:
@@ -204,7 +203,6 @@ components:
           type: string
           title: Timezone
         prediction:
-          additionalProperties: true
           type: object
           title: Prediction
         generated_at:
@@ -221,8 +219,7 @@ components:
           title: Created At
         settlement:
           anyOf:
-          - additionalProperties: true
-            type: object
+          - type: object
           - type: 'null'
           title: Settlement
       type: object

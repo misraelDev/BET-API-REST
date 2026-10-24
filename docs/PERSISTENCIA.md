@@ -245,3 +245,10 @@ calculan con el resultado, no con la cuota.
 - [Guía del analista](ANALISTA.md)
 - [Endpoints](ENDPOINTS.md)
 - [Configuración](CONFIGURACION.md)
+# Rankings enviados por analistas
+
+Los rankings se almacenan en la colección `football_rankings`, configurable con
+`MONGODB_FOOTBALL_RANKINGS_COLLECTION`. Cada revisión es un documento inmutable;
+un índice único por `ranking_id`/`version` conserva el historial y otro impide
+duplicar claves idempotentes. Una nueva revisión marca como no vigente la
+anterior y no altera sus filas.

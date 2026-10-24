@@ -3,7 +3,7 @@ info:
   title: BET Analytics API - Béisbol
   description: Contrato OpenAPI de béisbol (MLB/KBO). Incluye solo las rutas `/api/v1/baseball` y los
     esquemas que esas rutas referencian. El resto de deportes está en archivos separados dentro de `openapi/`.
-  version: 1.5.0
+  version: 1.6.0
   contact:
     name: BET Analytics
   license:
@@ -38,7 +38,6 @@ paths:
             application/json:
               schema:
                 type: object
-                additionalProperties: true
                 title: Response Baseball Stats Api V1 Baseball Stats Get
         '422':
           description: Validation Error
@@ -155,7 +154,6 @@ paths:
             maximum: 200
             minimum: 1
           - type: 'null'
-          deprecated: true
           title: Limit
         deprecated: true
       - name: hour
@@ -181,8 +179,8 @@ paths:
         schema:
           anyOf:
           - type: number
-            maximum: 100
-            minimum: 0
+            maximum: 100.0
+            minimum: 0.0
           - type: 'null'
           title: Min Probability
       responses:
@@ -382,7 +380,6 @@ components:
           type: string
           title: Timezone
         prediction:
-          additionalProperties: true
           type: object
           title: Prediction
         generated_at:
@@ -403,8 +400,7 @@ components:
           default: pending
         settlement:
           anyOf:
-          - additionalProperties: true
-            type: object
+          - type: object
           - type: 'null'
           title: Settlement
       type: object

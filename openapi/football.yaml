@@ -3,7 +3,7 @@ info:
   title: BET Analytics API - Fútbol
   description: Contrato OpenAPI de fútbol. Incluye solo las rutas `/api/v1/football` y los esquemas que
     esas rutas referencian. El resto de deportes está en archivos separados dentro de `openapi/`.
-  version: 1.5.0
+  version: 1.6.0
   contact:
     name: BET Analytics
   license:
@@ -63,7 +63,6 @@ paths:
             maximum: 200
             minimum: 1
           - type: 'null'
-          deprecated: true
           title: Limit
         deprecated: true
       - name: hour
@@ -89,8 +88,8 @@ paths:
         schema:
           anyOf:
           - type: number
-            maximum: 100
-            minimum: 0
+            maximum: 100.0
+            minimum: 0.0
           - type: 'null'
           title: Min Probability
       responses:
@@ -915,6 +914,291 @@ paths:
             application/json:
               example:
                 detail: Persistencia deshabilitada.
+  /api/v1/football/rankings:
+    post:
+      tags:
+      - Football Rankings
+      summary: Registra uno o varios rankings elaborados por analistas
+      description: La API valida, almacena y versiona el contenido enviado. No calcula, completa, reordena
+        ni evalúa la calidad deportiva del ranking. GET no genera ni modifica rankings. Un prediction_id/version_id
+        es opcional; si se envía, se valida y debe ser compatible con su fila.
+      operationId: create_rankings_api_v1_football_rankings_post
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FootballRankingBatchCreate'
+            examples:
+              ranking_por_liga:
+                value:
+                  items:
+                  - ranking_id: rank-liga-mx-winner-20261024
+                    idempotency_key: rank-liga-mx-winner-20261024-v1
+                    target_date: '2026-10-24'
+                    timezone: America/Mexico_City
+                    analyst: ana.garcia
+                    scope: league
+                    competition: liga_mx
+                    ranking_type: winner
+                    sort_criterion: probabilidad_descendente
+                    sort_direction: desc
+                    analysis_prompt_version_id: 3be3ffee060a4f01b01057c32f5ae197
+                    method_version: analista-v2
+                    generated_at: '2026-10-24T10:30:00-06:00'
+                    coverage:
+                      matches_considered: 4
+                      matches_with_rows: 3
+                      coverage_complete: false
+                      limitations:
+                      - Un partido sin estimación confiable.
+                    rows:
+                    - position: 1
+                      league: liga_mx
+                      event_id: 736644
+                      home_team: Pumas UNAM
+                      away_team: Necaxa
+                      kickoff: '2026-10-24T20:00:00-06:00'
+                      match_status: scheduled
+                      market: 1x2
+                      period: full_time
+                      selection: home
+                      estimate_status: estimated
+                      probability: 58
+                      confidence: 4
+                      rationale: La estimación del analista favorece al local.
+                      risk: Alineaciones aún no confirmadas.
+                      prediction_id: pred-liga-mx-736644-home
+                      version_id: 9a1c2e3f4b5d6a7c8e9f0a1b2c3d4e5f
+                    - position: 2
+                      league: liga_mx
+                      event_id: 736645
+                      home_team: Atlas
+                      away_team: Puebla
+                      match_status: scheduled
+                      market: 1x2
+                      period: full_time
+                      selection: away
+                      estimate_status: not_estimated
+                      no_estimate_reason: Datos insuficientes para estimar.
+              ranking_general:
+                value:
+                  items:
+                  - idempotency_key: rank-general-confidence-20261024-v1
+                    target_date: '2026-10-24'
+                    timezone: America/Mexico_City
+                    analyst: ana.garcia
+                    scope: general
+                    ranking_type: overall_high_confidence
+                    sort_criterion: confidence_desc_then_probability_desc
+                    sort_direction: desc
+                    analysis_prompt_version_id: 3be3ffee060a4f01b01057c32f5ae197
+                    method_version: analista-v2
+                    generated_at: '2026-10-24T10:30:00-06:00'
+                    coverage:
+                      matches_considered: 12
+                      matches_with_rows: 2
+                      coverage_complete: false
+                      limitations:
+                      - Solo se incluyen selecciones sustentadas.
+                    rows:
+                    - position: 1
+                      league: mls
+                      event_id: 123456
+                      home_team: Seattle Sounders
+                      away_team: Portland Timbers
+                      match_status: scheduled
+                      market: corners_total
+                      period: full_time
+                      selection: over
+                      line: 8.5
+                      estimate_status: estimated
+                      probability: 70
+                      confidence: 5
+                      rationale: Selección principal publicada por el analista.
+                      expected_value: 10.2
+                      expected_value_unit: corners
+                    - position: 2
+                      league: liga_mx
+                      event_id: 654321
+                      home_team: Toluca
+                      away_team: Monterrey
+                      match_status: scheduled
+                      market: 1x2
+                      period: full_time
+                      selection: home
+                      estimate_status: estimated
+                      probability: 66
+                      confidence: 4
+                      rationale: Segunda selección de otra liga.
+      responses:
+        '201':
+          description: Al menos un ranking se registró como versión nueva.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FootballRankingBatchResponse'
+        '200':
+          description: Reintento idempotente sin creaciones nuevas.
+        '409':
+          description: Conflicto de idempotencia o de versión.
+        '422':
+          description: Estructura o referencia inválida; el lote no se inserta.
+        '503':
+          description: MongoDB o una dependencia de validación no disponible.
+    get:
+      tags:
+      - Football Rankings
+      summary: Consulta rankings almacenados
+      description: Devuelve exactamente las filas y el orden enviados por los analistas. Si se omite date,
+        usa hoy en America/Mexico_City. La consulta es de solo lectura y una ausencia devuelve items vacío,
+        nunca un ranking generado.
+      operationId: list_rankings_api_v1_football_rankings_get
+      parameters:
+      - name: date
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          title: Date
+      - name: league
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - $ref: '#/components/schemas/FootballLeague'
+          - type: 'null'
+          title: League
+      - name: analyst
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            minLength: 1
+            maxLength: 80
+          - type: 'null'
+          title: Analyst
+      - name: scope
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - $ref: '#/components/schemas/RankingScope'
+          - type: 'null'
+          title: Scope
+      - name: ranking_type
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - $ref: '#/components/schemas/RankingType'
+          - type: 'null'
+          title: Ranking Type
+      - name: include_versions
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: false
+          title: Include Versions
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          default: 1
+          title: Page
+      - name: page_size
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 200
+          minimum: 1
+          default: 50
+          title: Page Size
+      responses:
+        '200':
+          description: Página de rankings almacenados.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FootballRankingListResponse'
+        '503':
+          description: MongoDB no disponible.
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/football/rankings/{ranking_id}:
+    get:
+      tags:
+      - Football Rankings
+      summary: Consulta un ranking y su historial de versiones
+      operationId: get_ranking_api_v1_football_rankings__ranking_id__get
+      parameters:
+      - name: ranking_id
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: ^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$
+          title: Ranking Id
+      - name: version
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: integer
+            minimum: 1
+          - type: 'null'
+          title: Version
+      - name: version_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            pattern: ^[A-Fa-f0-9]{32}$
+          - type: 'null'
+          title: Version Id
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          default: 1
+          title: Page
+      - name: page_size
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 200
+          minimum: 1
+          default: 50
+          title: Page Size
+      responses:
+        '200':
+          description: Ranking actual o versión exacta, más historial paginado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FootballRankingDetailResponse'
+        '404':
+          description: Ranking o revisión inexistente.
+        '422':
+          description: Parámetros de versión incompatibles.
+        '503':
+          description: MongoDB no disponible.
 components:
   schemas:
     FootballEvaluationListResponse:
@@ -1597,6 +1881,240 @@ components:
       - page_size
       - total
       title: FootballPredictionListResponse
+    FootballRankingBatchCreate:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/FootballRankingCreate'
+          type: array
+          maxItems: 100
+          minItems: 1
+          title: Items
+      additionalProperties: false
+      type: object
+      required:
+      - items
+      title: FootballRankingBatchCreate
+    FootballRankingBatchItem:
+      properties:
+        status:
+          type: string
+          enum:
+          - created
+          - replayed
+          - rejected
+          title: Status
+        ranking_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Ranking Id
+        version:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Version
+        version_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Version Id
+        idempotency_key:
+          type: string
+          title: Idempotency Key
+        error:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Error
+        ranking:
+          anyOf:
+          - $ref: '#/components/schemas/StoredFootballRanking'
+          - type: 'null'
+      type: object
+      required:
+      - status
+      - idempotency_key
+      title: FootballRankingBatchItem
+    FootballRankingBatchResponse:
+      properties:
+        received_at:
+          type: string
+          format: date-time
+          title: Received At
+        total:
+          type: integer
+          title: Total
+        created:
+          type: integer
+          title: Created
+        replayed:
+          type: integer
+          title: Replayed
+        rejected:
+          type: integer
+          title: Rejected
+        items:
+          items:
+            $ref: '#/components/schemas/FootballRankingBatchItem'
+          type: array
+          title: Items
+      type: object
+      required:
+      - received_at
+      - total
+      - created
+      - replayed
+      - rejected
+      - items
+      title: FootballRankingBatchResponse
+    FootballRankingCreate:
+      properties:
+        ranking_id:
+          anyOf:
+          - type: string
+            pattern: ^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$
+          - type: 'null'
+          title: Ranking Id
+        idempotency_key:
+          type: string
+          pattern: ^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$
+          title: Idempotency Key
+        target_date:
+          type: string
+          format: date
+          title: Target Date
+        timezone:
+          type: string
+          maxLength: 64
+          minLength: 1
+          title: Timezone
+        analyst:
+          type: string
+          maxLength: 80
+          minLength: 2
+          title: Analyst
+        scope:
+          $ref: '#/components/schemas/RankingScope'
+        competition:
+          anyOf:
+          - $ref: '#/components/schemas/FootballLeague'
+          - type: 'null'
+        ranking_type:
+          $ref: '#/components/schemas/RankingType'
+        sort_criterion:
+          type: string
+          maxLength: 120
+          minLength: 1
+          title: Sort Criterion
+        sort_direction:
+          type: string
+          enum:
+          - asc
+          - desc
+          title: Sort Direction
+        analysis_prompt_version_id:
+          type: string
+          pattern: ^[A-Fa-f0-9]{32}$
+          title: Analysis Prompt Version Id
+        method_version:
+          type: string
+          maxLength: 40
+          minLength: 1
+          title: Method Version
+        generated_at:
+          type: string
+          format: date-time
+          title: Generated At
+        rows:
+          items:
+            $ref: '#/components/schemas/RankingRow'
+          type: array
+          maxItems: 10000
+          minItems: 1
+          title: Rows
+        coverage:
+          $ref: '#/components/schemas/RankingCoverage'
+      additionalProperties: false
+      type: object
+      required:
+      - idempotency_key
+      - target_date
+      - timezone
+      - analyst
+      - scope
+      - ranking_type
+      - sort_criterion
+      - sort_direction
+      - analysis_prompt_version_id
+      - method_version
+      - generated_at
+      - rows
+      - coverage
+      title: FootballRankingCreate
+      description: An analyst-authored ranking document submitted for immutable storage.
+    FootballRankingDetailResponse:
+      properties:
+        ranking:
+          $ref: '#/components/schemas/StoredFootballRanking'
+        current_version:
+          type: integer
+          title: Current Version
+        total_versions:
+          type: integer
+          title: Total Versions
+        history_page:
+          type: integer
+          title: History Page
+        history_page_size:
+          type: integer
+          title: History Page Size
+        versions:
+          items:
+            $ref: '#/components/schemas/StoredFootballRanking'
+          type: array
+          title: Versions
+      type: object
+      required:
+      - ranking
+      - current_version
+      - total_versions
+      - history_page
+      - history_page_size
+      - versions
+      title: FootballRankingDetailResponse
+    FootballRankingListResponse:
+      properties:
+        date:
+          type: string
+          format: date
+          title: Date
+        timezone:
+          type: string
+          title: Timezone
+        page:
+          type: integer
+          title: Page
+        page_size:
+          type: integer
+          title: Page Size
+        total:
+          type: integer
+          title: Total
+        items:
+          items:
+            $ref: '#/components/schemas/StoredFootballRanking'
+          type: array
+          title: Items
+      type: object
+      required:
+      - date
+      - timezone
+      - page
+      - page_size
+      - total
+      - items
+      title: FootballRankingListResponse
     FootballResultsUpdateError:
       properties:
         event_id:
@@ -1743,7 +2261,6 @@ components:
         status:
           $ref: '#/components/schemas/SettlementStatus'
         observed:
-          additionalProperties: true
           type: object
           title: Observed
           description: Datos observados que sustentan la liquidación.
@@ -1832,6 +2349,223 @@ components:
       - version_id
       title: PromptReference
       description: Immutable reference to one exact prompt revision.
+    RankingCoverage:
+      properties:
+        matches_considered:
+          anyOf:
+          - type: integer
+            minimum: 0.0
+          - type: 'null'
+          title: Matches Considered
+        matches_with_rows:
+          anyOf:
+          - type: integer
+            minimum: 0.0
+          - type: 'null'
+          title: Matches With Rows
+        coverage_complete:
+          type: boolean
+          title: Coverage Complete
+        limitations:
+          items:
+            type: string
+          type: array
+          maxItems: 100
+          title: Limitations
+      additionalProperties: false
+      type: object
+      required:
+      - coverage_complete
+      title: RankingCoverage
+    RankingMatchStatus:
+      type: string
+      enum:
+      - scheduled
+      - in_play
+      - finished
+      - suspended
+      - postponed
+      - unknown
+      title: RankingMatchStatus
+    RankingRow:
+      properties:
+        position:
+          type: integer
+          minimum: 1.0
+          title: Position
+        league:
+          $ref: '#/components/schemas/FootballLeague'
+        event_id:
+          type: integer
+          exclusiveMinimum: 0.0
+          title: Event Id
+        home_team:
+          type: string
+          maxLength: 120
+          minLength: 1
+          title: Home Team
+        away_team:
+          type: string
+          maxLength: 120
+          minLength: 1
+          title: Away Team
+        kickoff:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Kickoff
+        match_status:
+          $ref: '#/components/schemas/RankingMatchStatus'
+          default: unknown
+        market:
+          $ref: '#/components/schemas/Market'
+        period:
+          $ref: '#/components/schemas/Period'
+        selection:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Selection
+        line:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Line
+        team:
+          anyOf:
+          - type: string
+            enum:
+            - home
+            - away
+          - type: 'null'
+          title: Team
+        player_id:
+          anyOf:
+          - type: string
+            maxLength: 64
+          - type: 'null'
+          title: Player Id
+        player:
+          anyOf:
+          - type: string
+            maxLength: 120
+          - type: 'null'
+          title: Player
+        home_goals:
+          anyOf:
+          - type: integer
+            maximum: 20.0
+            minimum: 0.0
+          - type: 'null'
+          title: Home Goals
+        away_goals:
+          anyOf:
+          - type: integer
+            maximum: 20.0
+            minimum: 0.0
+          - type: 'null'
+          title: Away Goals
+        estimate_status:
+          type: string
+          enum:
+          - estimated
+          - not_estimated
+          title: Estimate Status
+        probability:
+          anyOf:
+          - type: number
+            maximum: 100.0
+            minimum: 0.0
+          - type: 'null'
+          title: Probability
+        confidence:
+          anyOf:
+          - type: integer
+            maximum: 5.0
+            minimum: 1.0
+          - type: 'null'
+          title: Confidence
+        no_estimate_reason:
+          anyOf:
+          - type: string
+            maxLength: 500
+          - type: 'null'
+          title: No Estimate Reason
+        rationale:
+          anyOf:
+          - type: string
+            maxLength: 4000
+          - type: 'null'
+          title: Rationale
+        risk:
+          anyOf:
+          - type: string
+            maxLength: 1000
+          - type: 'null'
+          title: Risk
+        expected_value:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Expected Value
+        expected_value_unit:
+          anyOf:
+          - type: string
+            maxLength: 40
+          - type: 'null'
+          title: Expected Value Unit
+        prediction_id:
+          anyOf:
+          - type: string
+            pattern: ^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$
+          - type: 'null'
+          title: Prediction Id
+        version_id:
+          anyOf:
+          - type: string
+            pattern: ^[A-Fa-f0-9]{32}$
+          - type: 'null'
+          title: Version Id
+      additionalProperties: false
+      type: object
+      required:
+      - position
+      - league
+      - event_id
+      - home_team
+      - away_team
+      - market
+      - period
+      - estimate_status
+      title: RankingRow
+      description: A submitted row. Its list position and content are preserved verbatim.
+    RankingScope:
+      type: string
+      enum:
+      - league
+      - general
+      title: RankingScope
+    RankingType:
+      type: string
+      enum:
+      - first_team_to_score
+      - winner
+      - btts
+      - over_1_5_goals
+      - shots_match
+      - shots_team
+      - shots_player
+      - shots_on_target_match
+      - shots_on_target_team
+      - shots_on_target_player
+      - corners_match
+      - corners_team
+      - corners_handicap
+      - corners_most
+      - league_main_selections
+      - overall_high_confidence
+      title: RankingType
     SettlementSource:
       properties:
         name:
@@ -1943,7 +2677,6 @@ components:
           type: string
           title: Model Version
         prediction:
-          additionalProperties: true
           type: object
           title: Prediction
         generated_at:
@@ -1956,8 +2689,7 @@ components:
           title: Updated At
         settlement:
           anyOf:
-          - additionalProperties: true
-            type: object
+          - type: object
           - type: 'null'
           title: Settlement
       type: object
@@ -1970,6 +2702,100 @@ components:
       - generated_at
       - updated_at
       title: StoredFootballPrediction
+    StoredFootballRanking:
+      properties:
+        document_id:
+          type: string
+          title: Document Id
+        ranking_id:
+          type: string
+          title: Ranking Id
+        version:
+          type: integer
+          title: Version
+        version_id:
+          type: string
+          title: Version Id
+        is_current:
+          type: boolean
+          title: Is Current
+        supersedes_version_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Supersedes Version Id
+        target_date:
+          type: string
+          format: date
+          title: Target Date
+        timezone:
+          type: string
+          title: Timezone
+        analyst:
+          type: string
+          title: Analyst
+        scope:
+          $ref: '#/components/schemas/RankingScope'
+        competition:
+          anyOf:
+          - $ref: '#/components/schemas/FootballLeague'
+          - type: 'null'
+        ranking_type:
+          $ref: '#/components/schemas/RankingType'
+        sort_criterion:
+          type: string
+          title: Sort Criterion
+        sort_direction:
+          type: string
+          enum:
+          - asc
+          - desc
+          title: Sort Direction
+        analysis_prompt:
+          $ref: '#/components/schemas/PromptReference'
+        method_version:
+          type: string
+          title: Method Version
+        generated_at:
+          type: string
+          format: date-time
+          title: Generated At
+        received_at:
+          type: string
+          format: date-time
+          title: Received At
+        rows:
+          items:
+            $ref: '#/components/schemas/RankingRow'
+          type: array
+          title: Rows
+        coverage:
+          $ref: '#/components/schemas/RankingCoverage'
+        idempotency_key:
+          type: string
+          title: Idempotency Key
+      type: object
+      required:
+      - document_id
+      - ranking_id
+      - version
+      - version_id
+      - is_current
+      - target_date
+      - timezone
+      - analyst
+      - scope
+      - ranking_type
+      - sort_criterion
+      - sort_direction
+      - analysis_prompt
+      - method_version
+      - generated_at
+      - received_at
+      - rows
+      - coverage
+      - idempotency_key
+      title: StoredFootballRanking
     StoredMatch:
       properties:
         event_id:
@@ -2226,3 +3052,5 @@ servers:
 tags:
 - name: Football
   description: Resultados y liquidación de fútbol.
+- name: Football Rankings
+  description: Rankings de fútbol enviados y versionados por analistas.
