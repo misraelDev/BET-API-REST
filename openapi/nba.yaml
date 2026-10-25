@@ -71,8 +71,8 @@ paths:
         schema:
           anyOf:
           - type: number
-            maximum: 100.0
-            minimum: 0.0
+            maximum: 100
+            minimum: 0
           - type: 'null'
           title: Min Probability
       responses:
@@ -202,6 +202,7 @@ components:
           type: string
           title: Timezone
         prediction:
+          additionalProperties: true
           type: object
           title: Prediction
         generated_at:
@@ -218,7 +219,8 @@ components:
           title: Created At
         settlement:
           anyOf:
-          - type: object
+          - additionalProperties: true
+            type: object
           - type: 'null'
           title: Settlement
       type: object

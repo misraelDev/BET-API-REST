@@ -208,7 +208,8 @@ components:
           description: Id del visitante o jugador dos en la fuente.
         markets:
           anyOf:
-          - type: object
+          - additionalProperties: true
+            type: object
           - type: 'null'
           title: Markets
           description: Mercados adicionales con la forma que espera la liquidación. Si se omite, solo
@@ -290,6 +291,7 @@ components:
           type: string
           title: Timezone
         prediction:
+          additionalProperties: true
           type: object
           title: Prediction
         analysis_prompt:
@@ -312,7 +314,8 @@ components:
           title: Created At
         settlement:
           anyOf:
-          - type: object
+          - additionalProperties: true
+            type: object
           - type: 'null'
           title: Settlement
       type: object

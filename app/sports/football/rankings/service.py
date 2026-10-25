@@ -260,9 +260,9 @@ class RankingService:
         if analyst:
             query["analyst"] = analyst
         if scope is not None:
-            query["scope"] = scope.value
+            query["scope"] = getattr(scope, "value", scope)
         if ranking_type is not None:
-            query["ranking_type"] = ranking_type
+            query["ranking_type"] = getattr(ranking_type, "value", ranking_type)
         total = await self._repository.count_rankings(query)
         documents = await self._repository.find_rankings(
             query, skip=(page - 1) * page_size, limit=page_size
