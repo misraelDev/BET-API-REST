@@ -22,6 +22,7 @@ from app.sports.football.rankings.service import (
     RankingNotFound,
     RankingReferenceNotFound,
     RankingService,
+    StoredRankingInvalid,
 )
 
 router = APIRouter(
@@ -284,5 +285,7 @@ async def get_ranking(
         raise HTTPException(status_code=404, detail="Ranking o versión no encontrados.") from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except StoredRankingInvalid as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc

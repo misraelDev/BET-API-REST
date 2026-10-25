@@ -6,6 +6,10 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.sports.football.rankings.models import FootballRankingBatchCreate
+from app.sports.football.rankings.repository import (
+    FootballRankingRepository,
+    prepare_ranking,
+)
 from app.sports.football.rankings.router import router
 from app.sports.football.rankings.service import (
     RankingNotFound,
@@ -18,6 +22,12 @@ PROMPT_VERSION_ID = "3be3ffee060a4f01b01057c32f5ae197"
 PREDICTION_ID = "pred-liga-mx-736644-home"
 PREDICTION_VERSION_ID = "9a1c2e3f4b5d6a7c8e9f0a1b2c3d4e5f"
 RANKINGS_PATH = "/api/v1/football/rankings"
+
+
+def _mongo_uri_configured():
+    from app.core.config import get_settings
+
+    return bool(get_settings().mongodb_uri.strip())
 
 
 class FakePromptRepository:
@@ -464,6 +474,22 @@ def test_get_detail_returns_404_for_unknown_ranking():
     assert response.status_code == 404
 
 
+def test_invalid_stored_detail_is_internal_error_not_input_422():
+    client, repository = make_client()
+    valid = client.post(
+        RANKINGS_PATH,
+        json={"items": [item(ranking_id="broken-detail-ranking")]},
+    )
+    assert valid.status_code == 201
+    document = repository.documents[0]
+    document["rows"] = [{"position": "bad"}]
+
+    response = client.get(f"{RANKINGS_PATH}/broken-detail-ranking")
+
+    assert response.status_code == 500
+    assert response.status_code != 422
+
+
 def test_get_detail_rejects_version_and_version_id_together():
     client, _ = make_client()
     register_via_client = client.post(
@@ -477,3 +503,157 @@ def test_get_detail_rejects_version_and_version_id_together():
     )
 
     assert response.status_code == 422
+
+
+def test_mongo_naive_datetimes_are_reconstructed_as_utc_in_nested_rows():
+    from datetime import datetime
+
+    document = {
+        "_id": "mongo-document-id",
+        "received_at": datetime(2026, 10, 25, 14, 39, 34),
+        "generated_at": datetime(2026, 10, 25, 14, 39, 11),
+        "rows": [{"kickoff": datetime(2026, 10, 25, 20, 0)}],
+    }
+
+    restored = prepare_ranking(document)
+
+    assert restored["received_at"].utcoffset().total_seconds() == 0
+    assert restored["generated_at"].utcoffset().total_seconds() == 0
+    assert restored["rows"][0]["kickoff"].utcoffset().total_seconds() == 0
+    assert restored["rows"][0]["kickoff"].isoformat().endswith("+00:00")
+
+
+def test_invalid_stored_document_does_not_hide_valid_list_entries():
+    service, repository = build()
+    created = register(service, item())
+    bad = dict(repository.documents[0])
+    bad["ranking_id"] = "broken-ranking"
+    bad["rows"] = [{"position": "not-an-integer"}]
+    bad["idempotency_key"] = "ranking-key-0002"
+    repository.documents.append(bad)
+
+    response = asyncio.run(
+        service.list_rankings(target_date=date(2026, 10, 24), page_size=10)
+    )
+
+    assert response.total == 2
+    assert len(response.items) == 1
+    assert response.items[0].ranking_id == created.items[0].ranking_id
+
+
+@pytest.mark.skipif(
+    not _mongo_uri_configured(),
+    reason="Requiere MongoDB real configurado en MONGODB_URI.",
+)
+def test_real_mongodb_post_detail_and_list_round_trip():
+    """Opt-in integration test against real MongoDB; deletes only its own id."""
+    import os
+    import uuid
+
+    import httpx
+    from pymongo import AsyncMongoClient
+    from app.core.config import get_settings
+    from app.prompts.repository import PromptRepository
+    from app.sports.football.predictions.repository import (
+        FootballPredictionRepository,
+    )
+
+    settings = get_settings()
+    prompt_version_id = os.getenv(
+        "MONGODB_TEST_ANALYSIS_PROMPT_VERSION_ID",
+        "3be3ffee060a4f01b01057c32f5ae197",
+    )
+    ranking_id = f"it-ranking-{uuid.uuid4().hex[:20]}"
+    test_item = item(
+        ranking_id=ranking_id,
+        idempotency_key=f"it-key-{uuid.uuid4().hex[:20]}",
+        analysis_prompt_version_id=prompt_version_id,
+        ranking_type="league_main_selections",
+        rows=[
+            row(
+                kickoff="2026-10-25T20:00:00Z",
+                market="total_goals",
+                selection="over",
+                line=1.5,
+            ),
+            row(
+                position=2,
+                kickoff="2026-10-25T20:00:00Z",
+                market="btts",
+                selection="yes",
+            ),
+        ],
+    )
+    client = AsyncMongoClient(settings.mongodb_uri, serverSelectionTimeoutMS=5000)
+
+    async def run_round_trip():
+        prompts = PromptRepository(
+            settings.mongodb_uri,
+            settings.mongodb_database,
+            settings.mongodb_prompts_collection,
+            required=True,
+        )
+        rankings = FootballRankingRepository(
+            settings.mongodb_uri,
+            settings.mongodb_database,
+            settings.mongodb_football_rankings_collection,
+            required=True,
+        )
+        predictions = FootballPredictionRepository(
+            settings.mongodb_uri,
+            settings.mongodb_database,
+            settings.mongodb_football_predictions_collection,
+            settings.mongodb_football_evaluations_collection,
+            required=True,
+        )
+        await prompts.connect()
+        await rankings.connect()
+        await predictions.connect()
+        try:
+            # Confirm the exact prompt revision used by the POST exists.
+            assert await prompts.get_version_by_id(
+                "football", "analysis", prompt_version_id
+            )
+            repository = client[settings.mongodb_database][
+                settings.mongodb_football_rankings_collection
+            ]
+            await repository.delete_many({"ranking_id": ranking_id})
+            app = FastAPI()
+            app.include_router(router)
+            app.state.football_ranking_service = RankingService(
+                rankings,
+                prompt_repository=prompts,
+                prediction_repository=predictions,
+            )
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(
+                transport=transport, base_url="http://test"
+            ) as http:
+                posted = await http.post(RANKINGS_PATH, json={"items": [test_item]})
+                assert posted.status_code == 201, posted.text
+                version_id = posted.json()["items"][0]["version_id"]
+                detail = await http.get(f"{RANKINGS_PATH}/{ranking_id}")
+                assert detail.status_code == 200, detail.text
+                detail_ranking = detail.json()["ranking"]
+                assert detail_ranking["version_id"] == version_id
+                assert [row["position"] for row in detail_ranking["rows"]] == [1, 2]
+                assert detail_ranking["rows"][0]["kickoff"].endswith("Z") or (
+                    detail_ranking["rows"][0]["kickoff"].endswith("+00:00")
+                )
+                listed = await http.get(
+                    RANKINGS_PATH,
+                    params={"date": "2026-10-24", "analyst": "ana.garcia"},
+                )
+                assert listed.status_code == 200, listed.text
+                assert any(
+                    row["ranking_id"] == ranking_id for row in listed.json()["items"]
+                )
+        finally:
+            await client[settings.mongodb_database][
+                settings.mongodb_football_rankings_collection
+            ].delete_many({"ranking_id": ranking_id})
+            await predictions.close()
+            await rankings.close()
+            await prompts.close()
+
+    asyncio.run(run_round_trip())

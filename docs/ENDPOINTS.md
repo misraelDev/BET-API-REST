@@ -202,3 +202,24 @@ Las escrituras requieren `target_date` explícita. Cada fila identificada como
 `not_estimated` debe incluir `no_estimate_reason`, y no puede incluir una
 probabilidad o confianza inventada. La API valida estructura, no la calidad
 deportiva ni la cobertura declarada.
+
+### Fechas y datos de verificación
+
+Las fechas BSON que MongoDB almacena son instantes UTC. Al leer documentos con
+PyMongo en modo naive, el repositorio restaura `UTC` explícitamente para todas
+las fechas, incluidas las fechas anidadas de `rows[].kickoff`; nunca les asigna
+la zona local del servidor ni `America/Mexico_City`. Las respuestas serializan
+estas fechas con `Z` o `+00:00`.
+
+El listado valida cada documento de forma aislada: un documento almacenado que
+no pueda reconstruirse se registra en logs y se omite, sin abortar el resto de
+la página. El total representa los documentos que cumplen el filtro antes de
+esa validación; por ello puede ser mayor que `items` si hay registros inválidos.
+
+Los registros cuyo `analyst` empieza con `api-verify-` son datos operativos de
+verificación y deben excluirse explícitamente de métricas deportivas y de
+agregados analíticos, por ejemplo con un filtro exacto de analista o una regla
+`analyst` que no coincida con `^api-verify-`. Los endpoints de ranking no los
+excluyen globalmente ni modifican sus registros. Las instrucciones de un prompt
+solo afectan a los procesos que efectivamente usan ese prompt; no son una regla
+global de consulta o agregación.

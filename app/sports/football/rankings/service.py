@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import uuid
 from datetime import UTC, date, datetime
 from typing import Any
+
+from pydantic import ValidationError
 
 from app.prompts.models import PromptReference
 from app.prompts.repository import PromptRepository
@@ -27,6 +30,8 @@ from app.sports.football.rankings.repository import (
     RankingRepositoryConflict,
 )
 
+logger = logging.getLogger(__name__)
+
 
 class RankingNotFound(LookupError):
     pass
@@ -34,6 +39,10 @@ class RankingNotFound(LookupError):
 
 class RankingReferenceNotFound(LookupError):
     pass
+
+
+class StoredRankingInvalid(RuntimeError):
+    """A persisted ranking cannot be reconstructed from its stored document."""
 
 
 class RankingService:
@@ -267,13 +276,23 @@ class RankingService:
         documents = await self._repository.find_rankings(
             query, skip=(page - 1) * page_size, limit=page_size
         )
+        valid_items: list[StoredFootballRanking] = []
+        for document in documents:
+            try:
+                valid_items.append(StoredFootballRanking(**document))
+            except ValidationError:
+                logger.exception(
+                    "football_ranking.invalid_stored_document ranking_id=%s version=%s",
+                    document.get("ranking_id"),
+                    document.get("version"),
+                )
         return FootballRankingListResponse(
             date=target_date,
             timezone="America/Mexico_City",
             page=page,
             page_size=page_size,
             total=total,
-            items=[StoredFootballRanking(**document) for document in documents],
+            items=valid_items,
         )
 
     async def get_ranking(
@@ -304,11 +323,23 @@ class RankingService:
             skip=(history_page - 1) * history_page_size,
             limit=history_page_size,
         )
+        try:
+            selected_model = StoredFootballRanking(**selected)
+            version_models = [StoredFootballRanking(**item) for item in versions]
+        except ValidationError as exc:
+            logger.exception(
+                "football_ranking.invalid_stored_document ranking_id=%s",
+                ranking_id,
+            )
+            raise StoredRankingInvalid(
+                f"El documento almacenado del ranking {ranking_id} no cumple "
+                "el esquema de lectura."
+            ) from exc
         return FootballRankingDetailResponse(
-            ranking=StoredFootballRanking(**selected),
+            ranking=selected_model,
             current_version=int(current["version"]),
             total_versions=total,
             history_page=history_page,
             history_page_size=history_page_size,
-            versions=[StoredFootballRanking(**item) for item in versions],
+            versions=version_models,
         )

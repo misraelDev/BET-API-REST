@@ -17,16 +17,26 @@ class RankingRepositoryConflict(RuntimeError):
 
 
 def prepare_ranking(document: dict[str, Any]) -> dict[str, Any]:
-    result = dict(document)
-    result["document_id"] = str(result.pop("_id"))
-    for field in ("received_at", "generated_at"):
-        value = result.get(field)
+    def normalize_utc(value: Any) -> Any:
         if isinstance(value, datetime):
-            result[field] = (
+            # BSON dates are UTC instants. PyMongo's default tz_aware=False
+            # drops tzinfo on read, so restore UTC rather than guessing a
+            # display/local timezone.
+            return (
                 value.replace(tzinfo=UTC)
                 if value.tzinfo is None
                 else value.astimezone(UTC)
             )
+        if isinstance(value, dict):
+            return {key: normalize_utc(item) for key, item in value.items()}
+        if isinstance(value, list):
+            return [normalize_utc(item) for item in value]
+        if isinstance(value, tuple):
+            return tuple(normalize_utc(item) for item in value)
+        return value
+
+    result = normalize_utc(document)
+    result["document_id"] = str(result.pop("_id"))
     return result
 
 
