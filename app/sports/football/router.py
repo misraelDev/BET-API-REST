@@ -1,5 +1,5 @@
+import re
 from datetime import date
-from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Query, Request, Response
 
@@ -15,12 +15,6 @@ from app.sports.football.models import (
 )
 
 router = APIRouter(prefix="/api/v1/football", tags=["Football"])
-FootballLeague = Literal["all", "liga_mx", "brasileirao", "leagues_cup"]
-STORED_LEAGUE_NAMES = {
-    "liga_mx": "Liga MX",
-    "brasileirao": "Brasileirão Betano",
-    "leagues_cup": "Leagues Cup",
-}
 
 
 @router.get("/results", response_model=list[StoredFootballPrediction])
@@ -28,7 +22,7 @@ async def stored_results(
     request: Request,
     response: Response,
     target_date: date | None = Query(default=None, alias="date"),
-    league: FootballLeague = Query(default="all"),
+    league: str = Query(default="all"),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=200),
     limit: int | None = Query(default=None, ge=1, le=200, deprecated=True),
@@ -40,7 +34,22 @@ async def stored_results(
         size = limit or page_size
         repository = request.app.state.prediction_repository
         query_date = target_date.isoformat() if target_date else None
-        stored_league = STORED_LEAGUE_NAMES.get(league)
+        stored_league = None
+        if league != "all":
+            if not re.fullmatch(r"[a-z][a-z0-9_]{1,63}", league):
+                raise HTTPException(
+                    status_code=422, detail="Código de competición inválido."
+                )
+            catalog = getattr(
+                request.app.state, "football_competitions_repository", None
+            )
+            competition = await catalog.get(league) if catalog is not None else None
+            if competition is None:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"La competición {league} no existe en el catálogo.",
+                )
+            stored_league = competition["name"]
         market_fields = {
             "handicap": "prediction.markets.handicap.probability",
             "double_chance": "prediction.markets.double_chance.probability",

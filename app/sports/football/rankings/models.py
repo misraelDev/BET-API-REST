@@ -12,7 +12,6 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from app.prompts.models import PromptReference
 from app.sports.football.predictions.catalog import (
-    FootballLeague,
     Market,
     Period,
     market_rule,
@@ -61,7 +60,7 @@ class RankingRow(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     position: int = Field(ge=1)
-    league: FootballLeague
+    league: str = Field(pattern=r"^[a-z][a-z0-9_]{1,63}$")
     event_id: int = Field(gt=0)
     home_team: str = Field(min_length=1, max_length=120)
     away_team: str = Field(min_length=1, max_length=120)
@@ -177,7 +176,7 @@ class FootballRankingCreate(BaseModel):
     timezone: str = Field(min_length=1, max_length=64)
     analyst: str = Field(min_length=2, max_length=80)
     scope: RankingScope
-    competition: FootballLeague | None = None
+    competition: str | None = Field(default=None, pattern=r"^[a-z][a-z0-9_]{1,63}$")
     ranking_type: RankingType
     sort_criterion: str = Field(min_length=1, max_length=120)
     sort_direction: Literal["asc", "desc"]
@@ -282,7 +281,7 @@ class StoredFootballRanking(BaseModel):
     timezone: str
     analyst: str
     scope: RankingScope
-    competition: FootballLeague | None = None
+    competition: str | None = None
     ranking_type: RankingType
     sort_criterion: str
     sort_direction: Literal["asc", "desc"]

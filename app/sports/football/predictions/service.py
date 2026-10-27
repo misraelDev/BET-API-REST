@@ -12,6 +12,11 @@ from datetime import UTC, date, datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any, Protocol
 
 from app.prompts.models import PromptReference, PromptSport, PromptType
+from app.sports.football.competitions.repository import CompetitionRepository
+from app.sports.football.competitions.service import (
+    CompetitionNotFound,
+    CompetitionUnavailable,
+)
 from app.sports.football.predictions.catalog import (
     FootballLeague,
     KickoffSource,
@@ -158,6 +163,7 @@ class FootballPredictionService:
         observation_provider: ObservationProvider | None = None,
         kickoff_timeout_seconds: float = 8.0,
         prompt_repository: PromptRepository | None = None,
+        competition_repository: CompetitionRepository | None = None,
         clock: Any = None,
     ) -> None:
         self._repository = repository
@@ -165,7 +171,31 @@ class FootballPredictionService:
         self._observation_provider = observation_provider
         self._kickoff_timeout_seconds = kickoff_timeout_seconds
         self._prompt_repository = prompt_repository
+        self._competition_repository = competition_repository
         self._clock = clock or (lambda: datetime.now(UTC))
+
+    async def _competition(self, code: str) -> dict[str, Any]:
+        if self._competition_repository is not None:
+            document = await self._competition_repository.get(code)
+            if document is None:
+                raise CompetitionNotFound(code)
+            return document
+        try:
+            info = league_info(code)
+        except (KeyError, ValueError) as exc:
+            raise CompetitionNotFound(code) from exc
+        return {
+            "code": code,
+            "name": info.name,
+            "country": info.country,
+            "active": True,
+            "registration_available": True,
+            "providers": {"espn": {"competition_id": info.espn_slug}},
+            "capabilities": {
+                "query": True,
+                "automatic_settlement": info.automatic_settlement,
+            },
+        }
 
     async def register_batch(
         self, payload: FootballPredictionBatchRequest
@@ -187,12 +217,24 @@ class FootballPredictionService:
             version=int(prompt_document["version"]),
             version_id=prompt_document["version_id"],
         )
+        competitions = {
+            code: await self._competition(code)
+            for code in {item.league for item in payload.items}
+        }
         resolved: dict[int, datetime] = {}
         if self._kickoff_resolver is not None:
             requests: list[tuple[int, str]] = []
             seen: set[tuple[int, str]] = set()
             for item in payload.items:
-                key = (item.event_id, league_info(item.league).espn_slug)
+                provider = (
+                    competitions[item.league].get("providers") or {}
+                ).get("espn") or {}
+                provider_id = provider.get("competition_id") or provider.get(
+                    "league_id"
+                )
+                if not provider_id:
+                    continue
+                key = (item.event_id, str(provider_id))
                 if key not in seen:
                     seen.add(key)
                     requests.append(key)
@@ -211,9 +253,12 @@ class FootballPredictionService:
         for item in payload.items:
             try:
                 result = await self._register_item(
-                    item, received_at, resolved, analysis_prompt
+                    item, received_at, resolved, analysis_prompt,
+                    competitions[item.league],
                 )
             except RepositoryConflict as exc:
+                result = self._rejected(item, str(exc))
+            except CompetitionUnavailable as exc:
                 result = self._rejected(item, str(exc))
             except RuntimeError:
                 raise
@@ -247,6 +292,7 @@ class FootballPredictionService:
         received_at: datetime,
         resolved: dict[int, datetime],
         analysis_prompt: PromptReference,
+        competition: dict[str, Any],
     ) -> FootballPredictionBatchItemResult:
         request_hash = _request_hash(item, analysis_prompt)
         existing = await self._repository.find_by_idempotency_key(
@@ -258,6 +304,13 @@ class FootballPredictionService:
             return self._rejected(
                 item,
                 "idempotency_key ya existe con un cuerpo distinto.",
+            )
+
+        if not competition.get("active") or not competition.get(
+            "registration_available"
+        ):
+            raise CompetitionUnavailable(
+                f"La competición {item.league} está inactiva o no acepta registros."
             )
 
         prediction_id = item.prediction_id or uuid.uuid4().hex
@@ -292,6 +345,7 @@ class FootballPredictionService:
             previous=previous,
             provider_kickoff=resolved.get(item.event_id),
             analysis_prompt=analysis_prompt,
+            competition=competition,
         )
         try:
             stored = await self._repository.insert_version(document, previous)
@@ -323,8 +377,8 @@ class FootballPredictionService:
         previous: dict[str, Any] | None,
         provider_kickoff: datetime | None,
         analysis_prompt: PromptReference,
+        competition: dict[str, Any],
     ) -> dict[str, Any]:
-        info = league_info(item.league)
         kickoff_verified = provider_kickoff is not None
         if provider_kickoff is not None:
             kickoff = _utc(provider_kickoff)
@@ -376,9 +430,9 @@ class FootballPredictionService:
                 "event_id": item.event_id,
                 "date": match_date.isoformat(),
                 "declared_date": item.match_date.isoformat(),
-                "league": item.league.value,
-                "league_name": info.name,
-                "country": info.country,
+                "league": item.league,
+                "league_name": competition["name"],
+                "country": competition["country"],
                 "home_team": item.home_team,
                 "away_team": item.away_team,
                 "kickoff": kickoff,
@@ -475,7 +529,7 @@ class FootballPredictionService:
         match_date_from: date | None = None,
         match_date_to: date | None = None,
         received_date: date | None = None,
-        league: FootballLeague | None = None,
+        league: str | None = None,
         event_id: int | None = None,
         analyst: str | None = None,
         market: str | None = None,
@@ -508,7 +562,7 @@ class FootballPredictionService:
                 "$lt": end.astimezone(UTC),
             }
         if league is not None:
-            query["match.league"] = league.value
+            query["match.league"] = league
         if event_id is not None:
             query["event_id"] = event_id
         if analyst:
@@ -683,21 +737,38 @@ class FootballPredictionService:
         settled_at = _utc(self._clock())
         for event_id, group in grouped.items():
             league = str(group[0]["match"]["league"])
-            try:
-                info = league_info(league)
-                league_slug = info.espn_slug
-            except (KeyError, ValueError):
-                info = None
-                league_slug = None
-            if info is not None and not info.automatic_settlement:
+            competition: dict[str, Any] | None = None
+            if self._competition_repository is not None:
+                competition = await self._competition_repository.get(league)
+                provider = (competition or {}).get("providers") or {}
+                espn = provider.get("espn") or {}
+                league_slug = espn.get("competition_id") or espn.get("league_id")
+                automatic_settlement = bool(
+                    ((competition or {}).get("capabilities") or {}).get(
+                        "automatic_settlement", False
+                    )
+                )
+                competition_name = (competition or {}).get("name", league)
+            else:
+                try:
+                    info = league_info(league)
+                    league_slug = info.espn_slug
+                    automatic_settlement = info.automatic_settlement
+                    competition_name = info.name
+                except (KeyError, ValueError):
+                    league_slug = None
+                    automatic_settlement = False
+                    competition_name = league
+            if not automatic_settlement or not league_slug:
                 summary["predictions_pending"] += len(group)
                 summary["errors"].append(
                     FootballResultsUpdateError(
                         event_id=event_id,
                         stage="coverage",
                         message=(
-                            f"{info.name} está habilitada para registro, pero "
-                            "no tiene cobertura verificada para liquidación automática."
+                            f"{competition_name} está habilitada para registro, "
+                            "pero no tiene cobertura verificada para "
+                            "liquidación automática."
                         ),
                     )
                 )

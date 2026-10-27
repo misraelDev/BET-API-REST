@@ -3,7 +3,7 @@ info:
   title: BET Analytics API - Tenis
   description: Contrato OpenAPI de tenis (ATP/WTA). Incluye solo las rutas `/api/v1/tennis` y los esquemas
     que esas rutas referencian. El resto de deportes está en archivos separados dentro de `openapi/`.
-  version: 1.6.0
+  version: 1.7.0
   contact:
     name: BET Analytics
   license:

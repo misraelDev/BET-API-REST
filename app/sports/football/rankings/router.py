@@ -6,10 +6,22 @@ from datetime import date, datetime
 from typing import Annotated
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Body, HTTPException, Path, Query, Request, Response, status
+from fastapi import (
+    APIRouter,
+    Body,
+    HTTPException,
+    Path,
+    Query,
+    Request,
+    Response,
+    status,
+)
 
 from app.shared.pagination import set_pagination_headers
-from app.sports.football.predictions.catalog import FootballLeague
+from app.sports.football.competitions.service import (
+    CompetitionNotFound,
+    CompetitionUnavailable,
+)
 from app.sports.football.rankings.models import (
     FootballRankingBatchCreate,
     FootballRankingBatchResponse,
@@ -194,6 +206,10 @@ async def create_rankings(
         result = await _service(request).register_batch(payload)
     except RankingReferenceNotFound as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except CompetitionNotFound as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except CompetitionUnavailable as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     if result.created:
@@ -223,7 +239,7 @@ async def list_rankings(
     request: Request,
     response: Response,
     target_date: date | None = Query(default=None, alias="date"),
-    league: FootballLeague | None = None,
+    league: str | None = Query(default=None, pattern=r"^[a-z][a-z0-9_]{1,63}$"),
     analyst: str | None = Query(default=None, min_length=1, max_length=80),
     scope: RankingScope | None = None,
     ranking_type: RankingType | None = None,
@@ -232,6 +248,13 @@ async def list_rankings(
     page_size: int = Query(default=50, ge=1, le=200),
 ) -> FootballRankingListResponse:
     resolved_date = target_date or datetime.now(CDMX).date()
+    if league is not None:
+        catalog = getattr(request.app.state, "football_competitions_repository", None)
+        if catalog is None or await catalog.get(league) is None:
+            raise HTTPException(
+                status_code=422,
+                detail=f"La competición {league} no existe en el catálogo.",
+            )
     try:
         result = await _service(request).list_rankings(
             target_date=resolved_date,
@@ -282,7 +305,9 @@ async def get_ranking(
             history_page_size=page_size,
         )
     except RankingNotFound as exc:
-        raise HTTPException(status_code=404, detail="Ranking o versión no encontrados.") from exc
+        raise HTTPException(
+            status_code=404, detail="Ranking o versión no encontrados."
+        ) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except StoredRankingInvalid as exc:

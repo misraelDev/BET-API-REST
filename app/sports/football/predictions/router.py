@@ -17,8 +17,8 @@ from fastapi import (
 )
 
 from app.shared.pagination import set_pagination_headers
+from app.sports.football.competitions.service import CompetitionNotFound
 from app.sports.football.predictions.catalog import (
-    FootballLeague,
     Market,
     PERIOD_LABELS,
     Period,
@@ -26,7 +26,6 @@ from app.sports.football.predictions.catalog import (
     SETTLEMENT_STATUS_LABELS,
     SettlementStatus,
     TimingStatus,
-    league_catalog,
     market_catalog,
 )
 from app.sports.football.predictions.models import (
@@ -342,7 +341,13 @@ def _service(request: Request) -> FootballPredictionService:
     response_model=FootballMarketCatalogResponse,
     summary="Catálogo de ligas, mercados, periodos y reglas",
 )
-async def prediction_catalog() -> FootballMarketCatalogResponse:
+async def prediction_catalog(request: Request) -> FootballMarketCatalogResponse:
+    catalog_service = getattr(
+        request.app.state, "football_competition_service", None
+    )
+    if catalog_service is None:
+        raise HTTPException(status_code=503, detail="Catálogo de competiciones no configurado.")
+    competitions = await catalog_service.list(active=True, page_size=500)
     return FootballMarketCatalogResponse(
         rule_version=RULE_VERSION,
         periods={
@@ -353,8 +358,21 @@ async def prediction_catalog() -> FootballMarketCatalogResponse:
             for key, label in SETTLEMENT_STATUS_LABELS.items()
         },
         leagues=[
-            FootballLeagueCatalogItem(**league)
-            for league in league_catalog()
+            FootballLeagueCatalogItem(
+                code=item.code,
+                name=item.name,
+                country=item.country,
+                type=item.type.value,
+                active=item.active,
+                registration_available=item.registration_available,
+                providers={
+                    key: value.model_dump(mode="json")
+                    for key, value in (item.providers or {}).items()
+                } if item.providers else None,
+                query_available=item.capabilities.query,
+                automatic_settlement_available=item.capabilities.automatic_settlement,
+            )
+            for item in competitions.items
         ],
         markets=[
             FootballMarketRuleResponse(**market)
@@ -419,6 +437,11 @@ async def register_predictions(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=str(exc),
         ) from exc
+    except CompetitionNotFound as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"La competición {exc.args[0]} no existe en el catálogo.",
+        ) from exc
     except RuntimeError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -461,7 +484,7 @@ async def list_predictions(
     match_date_from: date | None = Query(default=None),
     match_date_to: date | None = Query(default=None),
     received_date: date | None = Query(default=None),
-    league: FootballLeague | None = Query(default=None),
+    league: str | None = Query(default=None, pattern=r"^[a-z][a-z0-9_]{1,63}$"),
     event_id: int | None = Query(default=None, gt=0),
     analyst: str | None = Query(default=None, min_length=1),
     market: Market | None = Query(default=None),
@@ -472,6 +495,13 @@ async def list_predictions(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=200),
 ) -> FootballPredictionListResponse:
+    if league is not None:
+        catalog = getattr(request.app.state, "football_competitions_repository", None)
+        if catalog is None or await catalog.get(league) is None:
+            raise HTTPException(
+                status_code=422,
+                detail=f"La competición {league} no existe en el catálogo.",
+            )
     if match_date is not None and (
         match_date_from is not None or match_date_to is not None
     ):

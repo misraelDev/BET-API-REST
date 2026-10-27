@@ -252,3 +252,12 @@ Los rankings se almacenan en la colección `football_rankings`, configurable con
 un índice único por `ranking_id`/`version` conserva el historial y otro impide
 duplicar claves idempotentes. Una nueva revisión marca como no vigente la
 anterior y no altera sus filas.
+
+## Catálogo de competiciones
+
+La colección `football_competitions`, configurable con
+`MONGODB_FOOTBALL_COMPETITIONS_COLLECTION`, tiene índice único en `code`. Al
+conectar se insertan mediante `$setOnInsert` las 25 competiciones heredadas; la
+migración es idempotente y nunca sobrescribe los cambios posteriores. El código
+es inmutable, las marcas de tiempo las genera el servidor y PATCH solo modifica
+campos enviados, fusionando capacidades anidadas por clave.

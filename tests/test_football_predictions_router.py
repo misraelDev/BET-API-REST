@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 
 from app.sports.football.predictions.router import router
 from app.sports.football.predictions.service import FootballPredictionService
+from app.sports.football.competitions.service import CompetitionService
 from test_football_predictions_service import (
     ANALYSIS_PROMPT_VERSION_ID,
     EVALUATION_PROMPT_VERSION_ID,
@@ -48,7 +49,42 @@ def make_client(repository=None, **service_overrides):
     app.state.football_prediction_service = service(
         repository, **service_overrides
     )
+    app.state.football_competition_service = CompetitionService(
+        FakeCompetitionCatalogRepository()
+    )
     return TestClient(app), repository
+
+
+class FakeCompetitionCatalogRepository:
+    async def count(self, query):
+        return len(await self.list(query))
+
+    async def list(self, query, *, skip=0, limit=100):
+        from datetime import UTC, datetime
+        from app.sports.football.predictions.catalog import league_catalog
+
+        records = []
+        for item in league_catalog():
+            code = item["code"]
+            source = item["source"].removeprefix("ESPN (").removesuffix(")")
+            document = {
+                "code": code,
+                "name": item["name"],
+                "country": item["country"],
+                "type": "cup" if code in {"leagues_cup", "champions_league"} else "league",
+                "active": True,
+                "registration_available": True,
+                "providers": {"espn": {"competition_id": source}},
+                "capabilities": {
+                    "query": True,
+                    "automatic_settlement": item["automatic_settlement_available"],
+                },
+                "created_at": datetime.now(UTC),
+                "updated_at": datetime.now(UTC),
+            }
+            if all(document.get(key) == value for key, value in query.items()):
+                records.append(document)
+        return records[skip : skip + limit]
 
 
 def register(client, *items):

@@ -34,6 +34,7 @@ TAGS = {
     "System": "Salud del servicio y catálogo de deportes soportados.",
     "Records": "Registro manual de partidos y picks del analista.",
     "Football": "Resultados y liquidación de fútbol.",
+    "Football Competitions": "Catálogo administrable de competiciones de fútbol.",
     "Football Rankings": "Rankings de fútbol enviados y versionados por analistas.",
     "NBA": "Resultados y liquidación de básquetbol (NBA).",
     "Baseball": "Estadísticas, resultados y liquidación de béisbol (MLB/KBO).",

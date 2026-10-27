@@ -11,9 +11,13 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from app.sports.football.competitions.repository import CompetitionRepository
+from app.sports.football.competitions.service import (
+    CompetitionNotFound,
+    CompetitionUnavailable,
+)
 from app.prompts.models import PromptReference
 from app.prompts.repository import PromptRepository
-from app.sports.football.predictions.catalog import FootballLeague
 from app.sports.football.predictions.repository import FootballPredictionRepository
 from app.sports.football.rankings.models import (
     FootballRankingBatchCreate,
@@ -52,11 +56,13 @@ class RankingService:
         *,
         prompt_repository: PromptRepository,
         prediction_repository: FootballPredictionRepository,
+        competition_repository: CompetitionRepository | None = None,
         clock: Any = None,
     ) -> None:
         self._repository = repository
         self._prompt_repository = prompt_repository
         self._prediction_repository = prediction_repository
+        self._competition_repository = competition_repository
         self._clock = clock or (lambda: datetime.now(UTC))
 
     @staticmethod
@@ -115,7 +121,7 @@ class RankingService:
                 match = document.get("match") or {}
                 checks = {
                     "event_id": (document.get("event_id"), row.event_id),
-                    "league": (match.get("league"), row.league.value),
+                    "league": (match.get("league"), row.league),
                     "market": (document.get("market"), row.market.value),
                     "period": (document.get("period"), row.period.value),
                     "selection": (document.get("selection"), row.selection),
@@ -134,23 +140,50 @@ class RankingService:
                         + "."
                     )
 
+    async def _validate_competitions(
+        self, payloads: list[FootballRankingCreate]
+    ) -> dict[str, dict[str, Any]]:
+        if self._competition_repository is None:
+            return {}
+        codes = {row.league for payload in payloads for row in payload.rows}
+        competitions = {
+            code: await self._competition_repository.get(code) for code in codes
+        }
+        missing = [
+            code for code, competition in competitions.items()
+            if competition is None
+        ]
+        if missing:
+            raise CompetitionNotFound(
+                "Competición(es) no registradas: " + ", ".join(sorted(missing))
+            )
+        return {
+            code: item for code, item in competitions.items() if item is not None
+        }
+
     async def register_batch(
         self, batch: FootballRankingBatchCreate
     ) -> FootballRankingBatchResponse:
         received_at = self._clock().astimezone(UTC)
 
+        competitions = await self._validate_competitions(batch.items)
+
         # Preflight every external reference before any insert so a bad
         # reference cannot leave a partially accepted batch.
         references: list[PromptReference] = []
         for item in batch.items:
-            references.append(await self._prompt_reference(item.analysis_prompt_version_id))
+            references.append(
+                await self._prompt_reference(item.analysis_prompt_version_id)
+            )
         await self._validate_prediction_references(batch.items)
 
         results: list[FootballRankingBatchItem] = []
         for item, prompt_reference in zip(batch.items, references, strict=True):
             try:
                 results.append(
-                    await self._register_one(item, prompt_reference, received_at)
+                    await self._register_one(
+                        item, prompt_reference, received_at, competitions
+                    )
                 )
             except RankingRepositoryConflict as exc:
                 results.append(
@@ -178,6 +211,7 @@ class RankingService:
         payload: FootballRankingCreate,
         prompt_reference: PromptReference,
         received_at: datetime,
+        competitions: dict[str, dict[str, Any]],
     ) -> FootballRankingBatchItem:
         request_hash = self._request_hash(payload, prompt_reference)
         existing = await self._repository.find_by_idempotency_key(
@@ -199,6 +233,17 @@ class RankingService:
                 idempotency_key=payload.idempotency_key,
                 ranking=StoredFootballRanking(**existing),
             )
+
+        for row in payload.rows:
+            competition = competitions.get(row.league)
+            if competition is not None and (
+                not competition.get("active")
+                or not competition.get("registration_available")
+            ):
+                raise CompetitionUnavailable(
+                    f"La competición {row.league} está inactiva o no acepta "
+                    "registros."
+                )
 
         ranking_id = payload.ranking_id or uuid.uuid4().hex
         previous = await self._repository.get_current(ranking_id)
@@ -253,7 +298,7 @@ class RankingService:
         self,
         *,
         target_date: date,
-        league: FootballLeague | None = None,
+        league: str | None = None,
         analyst: str | None = None,
         scope: RankingScope | None = None,
         ranking_type: str | None = None,
@@ -265,7 +310,7 @@ class RankingService:
         if not include_versions:
             query["is_current"] = True
         if league is not None:
-            query["competition"] = league.value
+            query["competition"] = league
         if analyst:
             query["analyst"] = analyst
         if scope is not None:

@@ -18,7 +18,6 @@ from pydantic import (
 from app.prompts.models import PromptReference
 
 from app.sports.football.predictions.catalog import (
-    FootballLeague,
     KickoffSource,
     Market,
     Period,
@@ -146,7 +145,8 @@ class FootballPredictionCreate(BaseModel):
         ),
         examples=["2026-10-24"],
     )
-    league: FootballLeague = Field(
+    league: str = Field(
+        pattern=r"^[a-z][a-z0-9_]{1,63}$",
         description="Competición. Consulta el catálogo en /predictions/markets.",
         examples=["liga_mx"],
     )
@@ -470,7 +470,7 @@ class StoredMatch(BaseModel):
         default=None,
         description="Fecha que declaró el analista, conservada para auditoría.",
     )
-    league: FootballLeague
+    league: str
     league_name: str
     country: str | None = None
     home_team: str
@@ -697,11 +697,14 @@ class FootballMarketRuleResponse(BaseModel):
 
 
 class FootballLeagueCatalogItem(BaseModel):
-    code: FootballLeague
+    code: str
     name: str
     country: str
-    source: str
+    type: str = "league"
+    active: bool = True
     registration_available: bool = True
+    providers: dict[str, Any] | None = None
+    query_available: bool = True
     automatic_settlement_available: bool = True
 
 

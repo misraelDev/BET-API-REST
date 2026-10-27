@@ -3,7 +3,7 @@ info:
   title: BET Analytics API - Fútbol
   description: Contrato OpenAPI de fútbol. Incluye solo las rutas `/api/v1/football` y los esquemas que
     esas rutas referencian. El resto de deportes está en archivos separados dentro de `openapi/`.
-  version: 1.6.0
+  version: 1.7.0
   contact:
     name: BET Analytics
   license:
@@ -29,11 +29,6 @@ paths:
         in: query
         required: false
         schema:
-          enum:
-          - all
-          - liga_mx
-          - brasileirao
-          - leagues_cup
           type: string
           default: all
           title: League
@@ -443,7 +438,8 @@ paths:
         required: false
         schema:
           anyOf:
-          - $ref: '#/components/schemas/FootballLeague'
+          - type: string
+            pattern: ^[a-z][a-z0-9_]{1,63}$
           - type: 'null'
           title: League
       - name: event_id
@@ -915,6 +911,194 @@ paths:
             application/json:
               example:
                 detail: Persistencia deshabilitada.
+  /api/v1/football/competitions:
+    post:
+      tags:
+      - Football Competitions
+      summary: Registra una competición de fútbol
+      description: Crea un código estable en el catálogo persistido. La competición se puede usar de inmediato
+        en registros manuales aunque no tenga proveedor o liquidación automática. Configurar IDs externos
+        no garantiza cobertura.
+      operationId: create_competition_api_v1_football_competitions_post
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CompetitionCreate'
+            examples:
+              copa_del_rey:
+                summary: Copa del Rey sin cobertura automática declarada
+                value:
+                  code: copa_del_rey
+                  name: Copa del Rey
+                  country: España
+                  type: cup
+                  active: true
+                  registration_available: true
+                  capabilities:
+                    query: true
+                    automatic_settlement: false
+              dfb_pokal:
+                summary: DFB-Pokal con identificador ESPN configurado
+                value:
+                  code: dfb_pokal
+                  name: DFB-Pokal
+                  country: Alemania
+                  type: cup
+                  active: true
+                  registration_available: true
+                  providers:
+                    espn:
+                      competition_id: ger.dfb_pokal
+                  capabilities:
+                    query: true
+                    automatic_settlement: false
+      responses:
+        '201':
+          description: Competición creada.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CompetitionRecord'
+        '409':
+          description: Ya existe una competición con ese code.
+        '422':
+          description: Code o configuración inválidos.
+        '503':
+          description: MongoDB no disponible.
+    get:
+      tags:
+      - Football Competitions
+      summary: Lista competiciones registradas
+      operationId: list_competitions_api_v1_football_competitions_get
+      parameters:
+      - name: active
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Active
+      - name: country
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            minLength: 1
+            maxLength: 100
+          - type: 'null'
+          title: Country
+      - name: type
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - $ref: '#/components/schemas/CompetitionType'
+          - type: 'null'
+          title: Type
+      - name: registration_available
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Registration Available
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          default: 1
+          title: Page
+      - name: page_size
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 500
+          minimum: 1
+          default: 100
+          title: Page Size
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CompetitionListResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/football/competitions/{code}:
+    get:
+      tags:
+      - Football Competitions
+      summary: Consulta una competición
+      operationId: get_competition_api_v1_football_competitions__code__get
+      parameters:
+      - name: code
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: ^[a-z][a-z0-9_]{1,63}$
+          title: Code
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CompetitionRecord'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    patch:
+      tags:
+      - Football Competitions
+      summary: Actualiza configuración o estado de una competición
+      description: PATCH solo modifica campos enviados. Las capacidades anidadas se fusionan parcialmente;
+        omitir providers/capabilities conserva la configuración. code es inmutable y no forma parte del
+        cuerpo.
+      operationId: patch_competition_api_v1_football_competitions__code__patch
+      parameters:
+      - name: code
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: ^[a-z][a-z0-9_]{1,63}$
+          title: Code
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CompetitionPatch'
+      responses:
+        '200':
+          description: Configuración actualizada.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CompetitionRecord'
+        '404':
+          description: Competición inexistente.
+        '422':
+          description: Campos o configuración inválidos.
+        '503':
+          description: MongoDB no disponible.
   /api/v1/football/rankings:
     post:
       tags:
@@ -1070,7 +1254,8 @@ paths:
         required: false
         schema:
           anyOf:
-          - $ref: '#/components/schemas/FootballLeague'
+          - type: string
+            pattern: ^[a-z][a-z0-9_]{1,63}$
           - type: 'null'
           title: League
       - name: analyst
@@ -1202,6 +1387,212 @@ paths:
           description: MongoDB no disponible.
 components:
   schemas:
+    CompetitionCapabilities:
+      properties:
+        query:
+          type: boolean
+          title: Query
+          default: true
+        automatic_settlement:
+          type: boolean
+          title: Automatic Settlement
+          default: false
+      additionalProperties: false
+      type: object
+      title: CompetitionCapabilities
+    CompetitionCreate:
+      properties:
+        code:
+          type: string
+          pattern: ^[a-z][a-z0-9_]{1,63}$
+          title: Code
+        name:
+          type: string
+          maxLength: 120
+          minLength: 1
+          title: Name
+        country:
+          type: string
+          maxLength: 100
+          minLength: 1
+          title: Country
+        type:
+          $ref: '#/components/schemas/CompetitionType'
+        active:
+          type: boolean
+          title: Active
+          default: true
+        registration_available:
+          type: boolean
+          title: Registration Available
+          default: true
+        providers:
+          anyOf:
+          - additionalProperties:
+              $ref: '#/components/schemas/CompetitionProvider'
+            type: object
+          - type: 'null'
+          title: Providers
+        capabilities:
+          $ref: '#/components/schemas/CompetitionCapabilities'
+      additionalProperties: false
+      type: object
+      required:
+      - code
+      - name
+      - country
+      - type
+      title: CompetitionCreate
+    CompetitionListResponse:
+      properties:
+        page:
+          type: integer
+          title: Page
+        page_size:
+          type: integer
+          title: Page Size
+        total:
+          type: integer
+          title: Total
+        items:
+          items:
+            $ref: '#/components/schemas/CompetitionRecord'
+          type: array
+          title: Items
+      type: object
+      required:
+      - page
+      - page_size
+      - total
+      - items
+      title: CompetitionListResponse
+    CompetitionPatch:
+      properties:
+        name:
+          anyOf:
+          - type: string
+            maxLength: 120
+            minLength: 1
+          - type: 'null'
+          title: Name
+        country:
+          anyOf:
+          - type: string
+            maxLength: 100
+            minLength: 1
+          - type: 'null'
+          title: Country
+        type:
+          anyOf:
+          - $ref: '#/components/schemas/CompetitionType'
+          - type: 'null'
+        active:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Active
+        registration_available:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Registration Available
+        providers:
+          anyOf:
+          - additionalProperties:
+              $ref: '#/components/schemas/CompetitionProvider'
+            type: object
+          - type: 'null'
+          title: Providers
+        capabilities:
+          anyOf:
+          - additionalProperties:
+              type: boolean
+            type: object
+          - type: 'null'
+          title: Capabilities
+      additionalProperties: false
+      type: object
+      title: CompetitionPatch
+      description: Only explicitly supplied fields are patched; nested capabilities merge.
+    CompetitionProvider:
+      properties:
+        competition_id:
+          anyOf:
+          - type: string
+          - type: integer
+          - type: 'null'
+          title: Competition Id
+        league_id:
+          anyOf:
+          - type: string
+          - type: integer
+          - type: 'null'
+          title: League Id
+        country_id:
+          anyOf:
+          - type: string
+          - type: integer
+          - type: 'null'
+          title: Country Id
+      additionalProperties: true
+      type: object
+      title: CompetitionProvider
+      description: External identifiers are declarative; they do not imply an adapter exists.
+    CompetitionRecord:
+      properties:
+        code:
+          type: string
+          title: Code
+        name:
+          type: string
+          title: Name
+        country:
+          type: string
+          title: Country
+        type:
+          $ref: '#/components/schemas/CompetitionType'
+        active:
+          type: boolean
+          title: Active
+        registration_available:
+          type: boolean
+          title: Registration Available
+        providers:
+          anyOf:
+          - additionalProperties:
+              $ref: '#/components/schemas/CompetitionProvider'
+            type: object
+          - type: 'null'
+          title: Providers
+        capabilities:
+          $ref: '#/components/schemas/CompetitionCapabilities'
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+        updated_at:
+          type: string
+          format: date-time
+          title: Updated At
+      additionalProperties: false
+      type: object
+      required:
+      - code
+      - name
+      - country
+      - type
+      - active
+      - registration_available
+      - capabilities
+      - created_at
+      - updated_at
+      title: CompetitionRecord
+    CompetitionType:
+      type: string
+      enum:
+      - league
+      - cup
+      title: CompetitionType
     FootballEvaluationListResponse:
       properties:
         items:
@@ -1225,52 +1616,38 @@ components:
       - page_size
       - total
       title: FootballEvaluationListResponse
-    FootballLeague:
-      type: string
-      enum:
-      - liga_mx
-      - liga_expansion_mx
-      - brasileirao
-      - leagues_cup
-      - mls
-      - la_liga
-      - premier_league
-      - serie_a
-      - bundesliga
-      - ligue_1
-      - champions_league
-      - europa_league
-      - conference_league
-      - libertadores
-      - sudamericana
-      - liga_betplay
-      - liga_profesional_argentina
-      - primera_division_chile
-      - liga_1_peru
-      - ligapro_ecuador
-      - primera_division_uruguay
-      - saudi_pro_league
-      - qatar_stars_league
-      - afc_champions_league_elite
-      - afc_champions_league_two
-      title: FootballLeague
-      description: Competiciones consultables y liquidables con el nuevo contrato.
     FootballLeagueCatalogItem:
       properties:
         code:
-          $ref: '#/components/schemas/FootballLeague'
+          type: string
+          title: Code
         name:
           type: string
           title: Name
         country:
           type: string
           title: Country
-        source:
+        type:
           type: string
-          title: Source
+          title: Type
+          default: league
+        active:
+          type: boolean
+          title: Active
+          default: true
         registration_available:
           type: boolean
           title: Registration Available
+          default: true
+        providers:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Providers
+        query_available:
+          type: boolean
+          title: Query Available
           default: true
         automatic_settlement_available:
           type: boolean
@@ -1281,7 +1658,6 @@ components:
       - code
       - name
       - country
-      - source
       title: FootballLeagueCatalogItem
     FootballMarketCatalogResponse:
       properties:
@@ -1519,7 +1895,9 @@ components:
           examples:
           - '2026-10-24'
         league:
-          $ref: '#/components/schemas/FootballLeague'
+          type: string
+          pattern: ^[a-z][a-z0-9_]{1,63}$
+          title: League
           description: Competición. Consulta el catálogo en /predictions/markets.
           examples:
           - liga_mx
@@ -1999,8 +2377,10 @@ components:
           $ref: '#/components/schemas/RankingScope'
         competition:
           anyOf:
-          - $ref: '#/components/schemas/FootballLeague'
+          - type: string
+            pattern: ^[a-z][a-z0-9_]{1,63}$
           - type: 'null'
+          title: Competition
         ranking_type:
           $ref: '#/components/schemas/RankingType'
         sort_criterion:
@@ -2396,7 +2776,9 @@ components:
           minimum: 1.0
           title: Position
         league:
-          $ref: '#/components/schemas/FootballLeague'
+          type: string
+          pattern: ^[a-z][a-z0-9_]{1,63}$
+          title: League
         event_id:
           type: integer
           exclusiveMinimum: 0.0
@@ -2742,8 +3124,9 @@ components:
           $ref: '#/components/schemas/RankingScope'
         competition:
           anyOf:
-          - $ref: '#/components/schemas/FootballLeague'
+          - type: string
           - type: 'null'
+          title: Competition
         ranking_type:
           $ref: '#/components/schemas/RankingType'
         sort_criterion:
@@ -2818,7 +3201,8 @@ components:
           title: Declared Date
           description: Fecha que declaró el analista, conservada para auditoría.
         league:
-          $ref: '#/components/schemas/FootballLeague'
+          type: string
+          title: League
         league_name:
           type: string
           title: League Name
@@ -3056,5 +3440,7 @@ servers:
 tags:
 - name: Football
   description: Resultados y liquidación de fútbol.
+- name: Football Competitions
+  description: Catálogo administrable de competiciones de fútbol.
 - name: Football Rankings
   description: Rankings de fútbol enviados y versionados por analistas.

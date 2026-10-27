@@ -51,6 +51,14 @@ Las pruebas no requieren MongoDB ni red: usan dobles de prueba para los
 clientes externos.
 # Rankings
 
+## Catálogo dinámico de competiciones
+
+La suite cubre creación, filtros, lectura, unicidad, PATCH parcial, código
+inmutable, migración idempotente de los 25 códigos, validación de códigos
+desconocidos y desactivación. También verifica el uso inmediato de un código
+dinámico en pronósticos y rankings, incluida la consulta histórica tras
+desactivarlo.
+
 Las pruebas del recurso deben cubrir lotes, validaciones, idempotencia,
 versionado, referencias opcionales/exactas, orden de filas y consultas de solo
 lectura. Para comprobar los contratos OpenAPI ejecuta

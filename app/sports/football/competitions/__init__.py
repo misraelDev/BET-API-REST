@@ -1,0 +1,1 @@
+"""Persisted football competition catalog."""

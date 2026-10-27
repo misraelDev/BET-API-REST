@@ -31,6 +31,9 @@ from app.sports.football.football_data_client import FootballDataClient
 from app.sports.football.resilient_client import ResilientFootballClient
 from app.sports.football.public_web_client import PublicWebFootballClient
 from app.sports.football.market_stats_client import FootballMarketStatsClient
+from app.sports.football.competitions.repository import CompetitionRepository
+from app.sports.football.competitions.router import router as football_competitions_router
+from app.sports.football.competitions.service import CompetitionService
 from app.sports.football.predictions.repository import (
     FootballPredictionRepository,
 )
@@ -122,6 +125,13 @@ async def lifespan(app: FastAPI):
         required=settings.mongodb_required,
     )
     await prompt_repository.connect()
+    football_competitions_repository = CompetitionRepository(
+        uri=settings.mongodb_uri,
+        database=settings.mongodb_database,
+        collection=settings.mongodb_football_competitions_collection,
+        required=settings.mongodb_required,
+    )
+    await football_competitions_repository.connect()
     football_rankings_repository = FootballRankingRepository(
         uri=settings.mongodb_uri,
         database=settings.mongodb_database,
@@ -142,6 +152,7 @@ async def lifespan(app: FastAPI):
         observation_provider=espn_football_results,
         kickoff_timeout_seconds=settings.football_kickoff_timeout_seconds,
         prompt_repository=prompt_repository,
+        competition_repository=football_competitions_repository,
     )
     baseball_settlement = BaseballSettlementService(
         schedule_client=baseball_schedule_client,
@@ -165,11 +176,16 @@ async def lifespan(app: FastAPI):
     app.state.prediction_repository = repository
     app.state.football_prediction_repository = football_predictions_repository
     app.state.prompt_repository = prompt_repository
+    app.state.football_competitions_repository = football_competitions_repository
+    app.state.football_competition_service = CompetitionService(
+        football_competitions_repository
+    )
     app.state.football_ranking_repository = football_rankings_repository
     app.state.football_ranking_service = RankingService(
         football_rankings_repository,
         prompt_repository=prompt_repository,
         prediction_repository=football_predictions_repository,
+        competition_repository=football_competitions_repository,
     )
     app.state.football_prediction_service = football_prediction_service
     app.state.espn_football_results = espn_football_results
@@ -198,6 +214,7 @@ async def lifespan(app: FastAPI):
     await app.state.prediction_repository.close()
     await app.state.football_prediction_repository.close()
     await app.state.prompt_repository.close()
+    await app.state.football_competitions_repository.close()
     await app.state.football_ranking_repository.close()
     await app.state.espn_football_results.close()
 
@@ -219,7 +236,7 @@ async def _run_baseball_settlement_loop(
 
 app = FastAPI(
     title="BET Analytics API",
-    version="1.6.0",
+    version="1.7.0",
     description=(
         "Registro, consulta y liquidación de predicciones deportivas. "
         "El registro es manual: la API ya no calcula probabilidades."
@@ -237,7 +254,7 @@ app.add_middleware(
     allow_origins=settings.cors_origin_list,
     allow_origin_regex=settings.cors_origin_regex,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_methods=["GET", "POST", "PATCH", "OPTIONS"],
     allow_headers=["*"],
     expose_headers=["X-Total-Count", "X-Page", "X-Page-Size", "X-Total-Pages"],
 )
@@ -245,6 +262,7 @@ app.add_middleware(
 app.include_router(records_router)
 app.include_router(football_router)
 app.include_router(football_predictions_router)
+app.include_router(football_competitions_router)
 app.include_router(football_rankings_router)
 app.include_router(prompts_router)
 app.include_router(nba_router)

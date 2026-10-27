@@ -27,6 +27,43 @@ Detalle de campos, fuentes de `event_id` y ejemplos por deporte:
 
 ## Fútbol
 
+### Catálogo dinámico de competiciones
+
+| Método | Ruta | Descripción |
+| --- | --- | --- |
+| POST | `/api/v1/football/competitions` | Crea una competición. |
+| GET | `/api/v1/football/competitions` | Lista y filtra por `active`, `country`, `type` y `registration_available`; admite `page` y `page_size`. |
+| GET | `/api/v1/football/competitions/{code}` | Consulta una competición, también si está inactiva. |
+| PATCH | `/api/v1/football/competitions/{code}` | Actualiza campos sin permitir cambiar `code`. |
+
+Ejemplo de `POST` sin proveedor ni cobertura automática:
+
+```json
+{
+  "code": "copa_del_rey",
+  "name": "Copa del Rey",
+  "country": "España",
+  "type": "cup",
+  "active": true,
+  "registration_available": true,
+  "capabilities": {"query": true, "automatic_settlement": false}
+}
+```
+
+Respuesta resumida: `201 Created` con el mismo objeto y `created_at`/`updated_at`
+generados por el servidor. Para DFB-Pokal se puede usar `code: "dfb_pokal"`,
+`name: "DFB-Pokal"`, `country: "Alemania"`, `type: "cup"`.
+
+Los códigos deben ser slugs en minúsculas y son únicos e inmutables. PATCH
+preserva todo campo omitido, y fusiona `capabilities` por clave; solo
+`providers: null` elimina explícitamente los proveedores. Las 25 competiciones
+existentes se migran con sus códigos actuales. Un POST nuevo se refleja de
+inmediato en pronósticos, rankings y `/predictions/markets`, validando siempre
+contra MongoDB. Desactivar impide registros nuevos, no la consulta/evaluación de
+históricos. No se requiere cobertura automática para dar de alta o registrar;
+sin evidencia verificable, la liquidación queda pendiente. La configuración de
+identificadores ESPN no garantiza que el proveedor cubra la competición.
+
 ### Resultados del registro manual
 
 | Método | Ruta | Parámetros | Cuerpo |
