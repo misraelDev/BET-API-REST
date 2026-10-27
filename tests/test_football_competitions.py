@@ -142,6 +142,39 @@ def test_patch_omitted_values_preserve_provider_configuration_and_merge_capabili
     assert data["name"] == "Copa del Rey · edición"
 
 
+def test_patch_provider_configuration_is_serialized_for_persistence():
+    client, repository = make_client()
+    client.post("/api/v1/football/competitions", json=payload())
+
+    response = client.patch(
+        "/api/v1/football/competitions/copa_del_rey",
+        json={
+            "providers": {"espn": {"competition_id": "esp.copa_del_rey"}},
+            "capabilities": {"automatic_settlement": True},
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["providers"]["espn"]["competition_id"] == "esp.copa_del_rey"
+    assert data["capabilities"]["automatic_settlement"] is True
+    stored = repository.records["copa_del_rey"]["providers"]["espn"]
+    assert isinstance(stored, dict)
+    assert stored["competition_id"] == "esp.copa_del_rey"
+
+
+def test_patch_rejects_automatic_settlement_without_espn_identifier():
+    client, _ = make_client()
+    client.post("/api/v1/football/competitions", json=payload())
+
+    response = client.patch(
+        "/api/v1/football/competitions/copa_del_rey",
+        json={"capabilities": {"automatic_settlement": True}},
+    )
+
+    assert response.status_code == 422
+
+
 def test_patch_rejects_null_for_non_nullable_fields_and_code_is_immutable():
     client, _ = make_client()
     client.post("/api/v1/football/competitions", json=payload())

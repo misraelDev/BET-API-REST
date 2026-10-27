@@ -97,8 +97,15 @@ class CompetitionService:
                     continue
                 for capability, flag in value.items():
                     changes[f"capabilities.{capability}"] = flag
-            elif field == "providers" and value is None:
-                changes[field] = None
+            elif field == "providers":
+                changes[field] = (
+                    None
+                    if value is None
+                    else {
+                        name: provider.model_dump(mode="python")
+                        for name, provider in value.items()
+                    }
+                )
             elif value is not None:
                 changes[field] = (
                     value.model_dump(mode="python")
