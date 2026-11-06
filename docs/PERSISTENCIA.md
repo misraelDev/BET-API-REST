@@ -59,6 +59,8 @@ busca entre el historial aunque la versión actual haya llegado tarde.
 | `supersedes_version_id` | Versión anterior, si existe. |
 | `idempotency_key` / `request_hash` | Clave del envío y huella del cuerpo. |
 | `event_id` | Partido. |
+| `event_source` | Proveedor del que proviene `event_id` (`espn` por defecto). |
+| `provider_event_ids` | IDs del mismo partido en otros proveedores; se usan como pista para localizar el resultado. |
 | `match` | `event_id`, `date` (CDMX), `declared_date`, liga, equipos, `kickoff` en UTC, `kickoff_source` y `kickoff_verified`. |
 | `market`, `period` | Mercado y periodo evaluado. |
 | `selection`, `line`, `team`, `player`, `player_id`, `home_goals`, `away_goals` | Identidad de la selección. |
@@ -136,6 +138,15 @@ misma clave.
 La liquidación es idempotente: si el estado y la evidencia observada no cambian,
 no se reescribe el documento. El pronóstico original (selección, probabilidad,
 confianza, fecha y fuentes) nunca se modifica.
+
+La liquidación automática consulta primero la fuente declarada en
+`event_source`. Si esa fuente no reconoce el ID o no está disponible, busca el
+mismo partido por equipos y fecha en TheSportsDB, 365Scores y ESPN. No se exige
+un ID de ESPN ni `provider_event_ids`; esa correspondencia solo acelera la
+búsqueda. El documento liquidado conserva `settled_at` y, en `source`, el
+`provider`, el `event_id`, la URL y el `retrieved_at` que respaldan el
+resultado. Si ninguna fuente encuentra el partido, queda `pendiente` con un
+error de observación, no con un rechazo del pronóstico.
 
 Los estados posibles son `pendiente`, `acertado`, `fallado`, `reembolso`,
 `media_ganancia`, `media_perdida`, `anulado` y `no_evaluable`. La colección heredada de `MONGODB_COLLECTION` sigue

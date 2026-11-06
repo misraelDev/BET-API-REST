@@ -123,6 +123,8 @@ _FIRST_GOAL_BATCH_EXAMPLE: dict[str, Any] = {
             "analyst": "ana.garcia",
             "method_version": "first_goal_v2",
             "forecast_group_id": "grp-first-goal-736644",
+            "event_source": "espn",
+            "provider_event_ids": {"espn": "736644"},
             "model_snapshot": {
                 "model_name": "first_goal",
                 "model_version": "first_goal_v2",

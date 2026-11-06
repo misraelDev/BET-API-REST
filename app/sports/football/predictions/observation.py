@@ -75,6 +75,14 @@ class PlayerObservation(BaseModel):
 
 class ObservationSource(BaseModel):
     name: str = "ESPN public summary"
+    provider: str | None = Field(
+        default=None,
+        description="Proveedor que permitió verificar el partido.",
+    )
+    event_id: int | None = Field(
+        default=None,
+        description="ID del partido en el proveedor que lo verificó.",
+    )
     url: str | None = None
     retrieved_at: datetime
 
@@ -630,6 +638,9 @@ def build_observation(
         events_complete=bool(events),
         stats_reliable=stats_reliable,
         source=ObservationSource(
+            name="ESPN public summary",
+            provider="espn",
+            event_id=event_id,
             url=source_url,
             retrieved_at=retrieved_at,
         ),

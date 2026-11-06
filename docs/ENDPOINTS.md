@@ -128,6 +128,15 @@ Cada pronóstico puede incluir además `model_snapshot` con las entradas y salid
 del modelo (lambdas, probabilidades, intervalos, contribuciones, cuotas,
 fuentes, hora de consulta y datos ausentes).
 
+Cada selección declara `event_source` (por defecto `espn`) y puede incluir
+`provider_event_ids` con el ID del mismo partido en otros proveedores, por
+ejemplo `{"espn": "736644", "sofascore": "12345678"}`. La liquidación automática
+consulta la fuente declarada y, si no encuentra el partido, busca por equipos y
+fecha en TheSportsDB, 365Scores y ESPN. `provider_event_ids` es una pista
+opcional, no un requisito. El resultado liquidado guarda `settled_at` y la
+fuente verificadora en `source` (`provider`, `event_id`, `url` y
+`retrieved_at`).
+
 Códigos de `POST /predictions`: `201` si se creó al menos una versión, `200` si
 todo fueron reintentos idempotentes y `409` si todo se rechazó. Los detalles del
 contrato están en la

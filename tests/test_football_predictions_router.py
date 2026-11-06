@@ -552,3 +552,34 @@ def test_settlement_status_filter_and_settle_flow():
     assert settled.status_code == 200
     assert settled.json()["total"] == 1
     assert settled.json()["items"][0]["settlement"]["status"] == "acertado"
+
+
+def test_post_prediction_keeps_event_provenance():
+    client, _ = make_client()
+
+    response = client.post(
+        PREDICTION_PATH,
+        json={
+            "analysis_prompt_version_id": ANALYSIS_PROMPT_VERSION_ID,
+            "items": [
+                body(
+                    idempotency_key="http-provenance-0001",
+                    event_id=987654,
+                    event_source="sofascore",
+                    provider_event_ids={
+                        "espn": "736644",
+                        "sofascore": "987654",
+                    },
+                )
+            ],
+        },
+    )
+
+    assert response.status_code == 201
+    record = response.json()["items"][0]["record"]
+    assert record["event_id"] == 987654
+    assert record["event_source"] == "sofascore"
+    assert record["provider_event_ids"] == {
+        "espn": "736644",
+        "sofascore": "987654",
+    }

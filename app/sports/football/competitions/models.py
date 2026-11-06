@@ -67,14 +67,22 @@ class CompetitionCreate(BaseModel):
 
     @model_validator(mode="after")
     def _consistent_capabilities(self) -> Self:
-        espn = (self.providers or {}).get("espn")
-        if self.capabilities.automatic_settlement and not (
-            espn and (espn.competition_id or espn.league_id)
-        ):
+        providers = self.providers or {}
+        supported = {
+            key
+            for key, provider in providers.items()
+            if key in {"espn", "thesportsdb", "365scores"}
+            and (
+                provider.competition_id
+                or provider.league_id
+                or provider.country_id
+            )
+        }
+        if self.capabilities.automatic_settlement and not supported:
             raise ValueError(
-                "automatic_settlement requiere el adaptador ESPN y su "
-                "competition_id/league_id; configurar el identificador no "
-                "garantiza datos verificables."
+                "automatic_settlement requiere al menos un proveedor con "
+                "identificador (espn, thesportsdb o 365scores); configurar el "
+                "identificador no garantiza datos verificables."
             )
         return self
 

@@ -55,7 +55,8 @@ bien.
 
 ### Pronósticos de fútbol versionados
 
-1. Busca el partido en ESPN y anota su `event_id`.
+1. Busca el partido en la fuente que prefieras (ESPN, SofaScore, 365Scores,
+   SoccerPunter...) y anota su `event_id` y la fuente.
 2. Envía un lote de selecciones a `POST /api/v1/football/predictions`.
 3. Tras el partido, ejecuta `POST /api/v1/football/results/update`.
 4. Consulta con `GET /api/v1/football/predictions` y el detalle de cada
@@ -66,7 +67,44 @@ bien.
 El contrato completo se describe en
 [Pronósticos de fútbol versionados](#pronósticos-de-fútbol-versionados).
 
+### Fuente del `event_id` y compatibilidad
+
+`event_id` es un entero, pero cada proveedor usa su propio número. La API
+guarda la procedencia en `event_source` y permite conservar los IDs de otros
+proveedores en `provider_event_ids`:
+
+```json
+{
+  "event_id": 987654,
+  "event_source": "sofascore",
+  "provider_event_ids": {
+    "espn": "736644",
+    "sofascore": "987654",
+    "365scores": "555"
+  }
+}
+```
+
+- Puedes buscar el partido en cualquier marcador; no estás limitado a ESPN.
+- Declara en `event_source` de dónde salió el `event_id`.
+- La liquidación automática consulta primero esa fuente y, si no puede
+  verificar el partido, busca el mismo encuentro por equipos y fecha en
+  TheSportsDB, 365Scores y ESPN.
+- `provider_event_ids.espn` es opcional: ayuda a resolver el partido, pero no
+  es obligatorio para liquidar.
+- La liquidación guarda `settled_at` y, en `source`, el proveedor, el
+  `event_id`, la URL y la hora de consulta que respaldan el resultado.
+- Si ninguna fuente encuentra el partido, queda pendiente con
+  `stage: observation`; el pronóstico no se rechaza.
+- Que el `POST` acepte el número solo confirma el formato; para comprobar lo
+  guardado usa `GET /api/v1/football/predictions/{prediction_id}`.
+
 ## Cómo obtener el `event_id`
+
+En el registro simple el `event_id` es la llave de liquidación del deporte. En
+los pronósticos de fútbol versionados declara la fuente en `event_source` y, si
+la conoces, agrega el ID de ESPN en `provider_event_ids.espn` para que la
+liquidación automática pueda verificar el partido.
 
 ### Fútbol — Liga MX (id `4350`)
 
@@ -475,10 +513,12 @@ completo con `422`.
 | Campo | Obligatorio | Descripción |
 | --- | --- | --- |
 | `idempotency_key` | Sí | 8–128 caracteres `A-Z a-z 0-9 . _ : -`. Única dentro del lote y globalmente en la colección `football_predictions`. |
-| `event_id` | Sí | Id del partido en ESPN. |
+| `event_id` | Sí | Id numérico del partido en la fuente declarada en `event_source`. |
+| `event_source` | No | Proveedor del `event_id`: `espn` (por defecto), `sofascore`, `365scores`, `soccerpunter`, `thesportsdb`, `api_football` u `other`. |
+| `provider_event_ids` | No | IDs del mismo partido en otros proveedores; por ejemplo `{"espn": "736644"}`. Se usan como pista para localizar el partido; no son obligatorios para liquidar. |
 | `match_date` | Sí | Jornada declarada en CDMX (`AAAA-MM-DD`). El servidor guarda en `match.date` la fecha derivada del `kickoff` conocido y conserva la declarada en `match.declared_date`. |
 | `league` | Sí | Código de liga del catálogo (`liga_mx`, `premier_league`...). |
-| `home_team` / `away_team` | Sí | Nombres como los reporta ESPN. |
+| `home_team` / `away_team` | Sí | Nombres como los reporta la fuente del `event_id`. |
 | `market` | Sí | Código de mercado (ver tabla). |
 | `period` | No | `full_time` por defecto, `first_half` o `second_half`. |
 | `selection` | Según mercado | Valor permitido por el mercado. |

@@ -3,7 +3,7 @@ info:
   title: BET Analytics API - Fútbol
   description: Contrato OpenAPI de fútbol. Incluye solo las rutas `/api/v1/football` y los esquemas que
     esas rutas referencian. El resto de deportes está en archivos separados dentro de `openapi/`.
-  version: 1.8.0
+  version: 1.9.0
   contact:
     name: BET Analytics
   license:
@@ -226,6 +226,9 @@ paths:
                     analyst: ana.garcia
                     method_version: first_goal_v2
                     forecast_group_id: grp-first-goal-736644
+                    event_source: espn
+                    provider_event_ids:
+                      espn: '736644'
                     model_snapshot:
                       model_name: first_goal
                       model_version: first_goal_v2
@@ -1686,6 +1689,25 @@ components:
       - league
       - cup
       title: CompetitionType
+    EventSource:
+      type: string
+      enum:
+      - espn
+      - sofascore
+      - 365scores
+      - soccerpunter
+      - thesportsdb
+      - api_football
+      - other
+      title: EventSource
+      description: 'Proveedor del que proviene ``event_id``.
+
+
+        La identidad del partido se guarda con el número y su procedencia. La
+
+        liquidación consulta esa fuente y, si no reconoce el partido, lo busca por
+
+        equipos y fecha en las demás fuentes configuradas.'
     FootballEvaluationListResponse:
       properties:
         items:
@@ -2188,6 +2210,25 @@ components:
             y almacena; no calcula ni ordena.
           examples:
           - grp-first-goal-736644
+        event_source:
+          $ref: '#/components/schemas/EventSource'
+          description: Proveedor del que proviene event_id. La liquidación consulta esa fuente y, si no
+            reconoce el partido, lo busca por equipos y fecha en otras fuentes.
+          default: espn
+          examples:
+          - espn
+          - sofascore
+        provider_event_ids:
+          additionalProperties:
+            type: string
+          type: object
+          title: Provider Event Ids
+          description: 'IDs del mismo partido en otros proveedores. La clave es el proveedor y el valor
+            su identificador, por ejemplo {"espn": "736644", "sofascore": "12345678"}. Son una pista opcional
+            para localizar el resultado; no son obligatorios.'
+          examples:
+          - espn: '736644'
+            sofascore: '12345678'
         model_snapshot:
           anyOf:
           - $ref: '#/components/schemas/ModelSnapshot'
@@ -3210,6 +3251,18 @@ components:
         name:
           type: string
           title: Name
+        provider:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Provider
+          description: Proveedor que verificó el resultado.
+        event_id:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Event Id
+          description: ID del partido en el proveedor que verificó el resultado.
         url:
           anyOf:
           - type: string
@@ -3520,6 +3573,14 @@ components:
         event_id:
           type: integer
           title: Event Id
+        event_source:
+          $ref: '#/components/schemas/EventSource'
+          default: espn
+        provider_event_ids:
+          additionalProperties:
+            type: string
+          type: object
+          title: Provider Event Ids
         match:
           $ref: '#/components/schemas/StoredMatch'
         market:

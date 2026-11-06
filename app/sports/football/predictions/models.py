@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import date, datetime
 from datetime import date as date_type
 from typing import Annotated, Any, Literal, Self
@@ -19,6 +20,7 @@ from app.prompts.models import PROMPT_ID_PATTERN, PromptReference
 
 from app.sports.football.predictions.catalog import (
     MARKET_FIRST_TEAM,
+    EventSource,
     KickoffSource,
     Market,
     Period,
@@ -31,6 +33,8 @@ from app.sports.football.predictions.catalog import (
 PREDICTION_ID_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9_-]{7,63}$"
 IDEMPOTENCY_KEY_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$"
 FORECAST_GROUP_ID_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$"
+PROVIDER_ID_KEY_PATTERN = r"^[a-z0-9][a-z0-9_]{0,31}$"
+PROVIDER_ID_VALUE_PATTERN = r"^[A-Za-z0-9._:-]{1,64}$"
 Side = Literal["home", "away"]
 
 
@@ -407,6 +411,25 @@ class FootballPredictionCreate(BaseModel):
         ),
         examples=["grp-first-goal-736644"],
     )
+    event_source: EventSource = Field(
+        default=EventSource.ESPN,
+        description=(
+            "Proveedor del que proviene event_id. La liquidación consulta "
+            "esa fuente y, si no reconoce el partido, lo busca por equipos y "
+            "fecha en otras fuentes."
+        ),
+        examples=["espn", "sofascore"],
+    )
+    provider_event_ids: dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "IDs del mismo partido en otros proveedores. La clave es el "
+            "proveedor y el valor su identificador, por ejemplo "
+            "{\"espn\": \"736644\", \"sofascore\": \"12345678\"}. Son una "
+            "pista opcional para localizar el resultado; no son obligatorios."
+        ),
+        examples=[{"espn": "736644", "sofascore": "12345678"}],
+    )
     model_snapshot: ModelSnapshot | None = Field(
         default=None,
         description=(
@@ -445,6 +468,30 @@ class FootballPredictionCreate(BaseModel):
             return None
         cleaned = " ".join(value.split())
         return cleaned or None
+
+    @field_validator("provider_event_ids", mode="before")
+    @classmethod
+    def _normalize_provider_event_ids(cls, value: Any) -> dict[str, str]:
+        if value is None:
+            return {}
+        if not isinstance(value, dict):
+            raise ValueError("provider_event_ids debe ser un objeto.")
+        normalized: dict[str, str] = {}
+        for raw_key, raw_value in value.items():
+            key = str(raw_key).strip().casefold()
+            if not re.fullmatch(PROVIDER_ID_KEY_PATTERN, key):
+                raise ValueError(
+                    "provider_event_ids usa claves como espn, sofascore o "
+                    "365scores."
+                )
+            text = str(raw_value).strip()
+            if not re.fullmatch(PROVIDER_ID_VALUE_PATTERN, text):
+                raise ValueError(
+                    f"provider_event_ids[{key!r}] debe ser un identificador "
+                    "no vacío."
+                )
+            normalized[key] = text
+        return normalized
 
     @model_validator(mode="after")
     def _validate_market_contract(self) -> Self:
@@ -544,6 +591,13 @@ class FootballPredictionCreate(BaseModel):
                 "forecast_group_id solo aplica al mercado first_team_to_score."
             )
 
+        source_id = self.provider_event_ids.get(self.event_source.value)
+        if source_id is not None and source_id != str(self.event_id):
+            raise ValueError(
+                f"provider_event_ids[{self.event_source.value!r}] debe "
+                "coincidir con event_id."
+            )
+
         return self
 
     @property
@@ -617,6 +671,21 @@ class FootballPredictionBatchRequest(BaseModel):
                     f"forecast_group_id {group_id!r} no puede mezclar partidos "
                     "distintos."
                 )
+            if len({item.event_source for item in group}) != 1:
+                raise ValueError(
+                    f"forecast_group_id {group_id!r} no puede mezclar fuentes "
+                    "de event_id distintas."
+                )
+            espn_ids = {
+                item.provider_event_ids.get("espn")
+                for item in group
+                if item.provider_event_ids.get("espn") is not None
+            }
+            if len(espn_ids) > 1:
+                raise ValueError(
+                    f"forecast_group_id {group_id!r} no puede mezclar IDs de "
+                    "ESPN distintos."
+                )
             if len({item.period for item in group}) != 1:
                 raise ValueError(
                     f"forecast_group_id {group_id!r} no puede mezclar periodos "
@@ -674,6 +743,14 @@ class StoredTiming(BaseModel):
 
 class SettlementSource(BaseModel):
     name: str
+    provider: str | None = Field(
+        default=None,
+        description="Proveedor que verificó el resultado.",
+    )
+    event_id: int | None = Field(
+        default=None,
+        description="ID del partido en el proveedor que verificó el resultado.",
+    )
     url: HttpUrl | None = None
     retrieved_at: datetime
 
@@ -698,6 +775,8 @@ class StoredPrediction(BaseModel):
     is_current: bool
     supersedes_version_id: str | None = None
     event_id: int
+    event_source: EventSource = EventSource.ESPN
+    provider_event_ids: dict[str, str] = Field(default_factory=dict)
     match: StoredMatch
     market: Market
     period: Period
@@ -940,6 +1019,7 @@ def _source_from_stored(value: Any) -> Any:
 
 __all__ = [
     "FORECAST_GROUP_ID_PATTERN",
+    "EventSource",
     "FootballEvaluationListResponse",
     "FootballLeagueCatalogItem",
     "FootballMarketCatalogResponse",

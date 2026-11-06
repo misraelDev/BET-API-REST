@@ -217,12 +217,27 @@ class FailingKickoffResolver:
 class FakeObservationProvider:
     def __init__(self, observations):
         self.observations = observations
+        self.calls = []
 
     async def get_observation(self, event_id, league_slug=None):
+        self.calls.append((event_id, league_slug))
         value = self.observations.get(event_id)
         if isinstance(value, Exception):
             raise value
         return value
+
+
+class FakeObservationResolver:
+    def __init__(self, observation=None, error=None):
+        self.observation = observation
+        self.error = error
+        self.calls = []
+
+    async def resolve(self, **kwargs):
+        self.calls.append(kwargs)
+        if self.error:
+            raise self.error
+        return self.observation
 
 
 def payload(**overrides):
@@ -789,6 +804,40 @@ async def test_settle_date_updates_current_versions():
 
 
 @pytest.mark.asyncio
+async def test_settle_date_keeps_equal_numeric_ids_from_different_sources_apart():
+    repository = FakeRepository()
+    provider = FakeObservationProvider(
+        {
+            100: observation(event_id=100),
+            736644: observation(event_id=736644),
+        }
+    )
+    subject = service(repository, observation_provider=provider)
+    await subject.register_batch(
+        batch(
+            payload(
+                prediction_id="abcdefgh",
+                idempotency_key="test-key-0001",
+                event_id=100,
+                event_source="espn",
+            ),
+            payload(
+                prediction_id="ijklmnop",
+                idempotency_key="test-key-0002",
+                event_id=100,
+                event_source="sofascore",
+                provider_event_ids={"espn": "736644"},
+            ),
+        )
+    )
+
+    summary = await subject.settle_date(date(2026, 10, 24))
+
+    assert summary["predictions_settled"] == 2
+    assert sorted(event_id for event_id, _ in provider.calls) == [100, 736644]
+
+
+@pytest.mark.asyncio
 async def test_settle_date_is_idempotent():
     repository = FakeRepository()
     subject = service(
@@ -1040,3 +1089,191 @@ async def test_evaluation_keeps_generic_evaluation_prompt_reference():
     assert stored.evaluation_prompt.version_id == (
         FIRST_GOAL_EVALUATION_PROMPT_VERSION_ID
     )
+
+
+@pytest.mark.asyncio
+async def test_event_provenance_is_stored_and_espn_mapping_settles():
+    repository = FakeRepository()
+    provider = FakeObservationProvider({736644: observation()})
+    subject = service(repository, observation_provider=provider)
+
+    result = await subject.register_batch(
+        batch(
+            payload(
+                prediction_id="abcdefgh",
+                event_id=987654,
+                event_source="sofascore",
+                provider_event_ids={
+                    "espn": "736644",
+                    "sofascore": "987654",
+                },
+            )
+        )
+    )
+
+    assert result.created == 1
+    document = repository.documents[0]
+    assert document["event_source"] == "sofascore"
+    assert document["provider_event_ids"] == {
+        "espn": "736644",
+        "sofascore": "987654",
+    }
+
+    summary = await subject.settle_date(date(2026, 10, 24))
+
+    assert summary["predictions_settled"] == 1
+    assert provider.calls == [(736644, "mex.1")]
+
+
+@pytest.mark.asyncio
+async def test_non_espn_event_settles_with_its_own_source():
+    repository = FakeRepository()
+    provider = FakeObservationProvider(
+        {987654: observation(event_id=987654)}
+    )
+    subject = service(repository, observation_provider=provider)
+
+    await subject.register_batch(
+        batch(
+            payload(
+                prediction_id="abcdefgh",
+                event_id=987654,
+                event_source="sofascore",
+            )
+        )
+    )
+
+    summary = await subject.settle_date(date(2026, 10, 24))
+
+    assert summary["predictions_settled"] == 1
+    assert summary["predictions_pending"] == 0
+    assert provider.calls == [(987654, "mex.1")]
+    assert repository.documents[0]["settlement_status"] == "acertado"
+
+
+@pytest.mark.asyncio
+async def test_settle_date_uses_resolver_and_records_verifying_source():
+    repository = FakeRepository()
+    resolver = FakeObservationResolver(
+        observation(
+            event_id=987654,
+            source=ObservationSource(
+                name="365Scores public game",
+                provider="365scores",
+                event_id=987654,
+                url="https://webws.365scores.com/web/game/?gameId=987654",
+                retrieved_at=datetime(2026, 10, 25, 5, 0, tzinfo=UTC),
+            ),
+        )
+    )
+    subject = service(
+        repository,
+        observation_provider=None,
+        observation_resolver=resolver,
+    )
+    await subject.register_batch(
+        batch(
+            payload(
+                prediction_id="abcdefgh",
+                event_id=987654,
+                event_source="sofascore",
+            )
+        )
+    )
+
+    summary = await subject.settle_date(date(2026, 10, 24))
+
+    assert summary["predictions_settled"] == 1
+    assert resolver.calls == [
+        {
+            "event_source": "sofascore",
+            "event_id": 987654,
+            "league_slug": "mex.1",
+            "home_team": "Pumas UNAM",
+            "away_team": "Necaxa",
+            "match_date": date(2026, 10, 24),
+        }
+    ]
+    settlement = repository.documents[0]["settlement"]
+    assert settlement["source"]["provider"] == "365scores"
+    assert settlement["source"]["event_id"] == 987654
+    assert settlement["source"]["name"] == "365Scores public game"
+
+
+@pytest.mark.asyncio
+async def test_settle_date_reports_observation_error_from_resolver():
+    repository = FakeRepository()
+    resolver = FakeObservationResolver(error=RuntimeError("fuente caída"))
+    subject = service(
+        repository,
+        observation_provider=None,
+        observation_resolver=resolver,
+    )
+    await subject.register_batch(
+        batch(payload(prediction_id="abcdefgh"))
+    )
+
+    summary = await subject.settle_date(date(2026, 10, 24))
+
+    assert summary["predictions_settled"] == 0
+    assert summary["errors"][0].stage == "observation"
+
+
+@pytest.mark.asyncio
+async def test_new_version_cannot_change_event_source():
+    repository = FakeRepository()
+    subject = service(repository)
+    await subject.register_batch(
+        batch(
+            payload(
+                prediction_id="abcdefgh",
+                event_id=987654,
+                event_source="sofascore",
+            )
+        )
+    )
+
+    rejected = await subject.register_batch(
+        batch(
+            payload(
+                idempotency_key="test-key-0002",
+                prediction_id="abcdefgh",
+                event_id=987654,
+                event_source="espn",
+            )
+        )
+    )
+
+    assert rejected.rejected == 1
+    assert "event_source" in rejected.items[0].error
+
+
+@pytest.mark.asyncio
+async def test_new_version_can_add_espn_mapping():
+    repository = FakeRepository()
+    subject = service(repository)
+    first = await subject.register_batch(
+        batch(
+            payload(
+                prediction_id="abcdefgh",
+                event_id=987654,
+                event_source="sofascore",
+            )
+        )
+    )
+    second = await subject.register_batch(
+        batch(
+            payload(
+                idempotency_key="test-key-0002",
+                prediction_id="abcdefgh",
+                event_id=987654,
+                event_source="sofascore",
+                provider_event_ids={"espn": "736644"},
+            )
+        )
+    )
+
+    assert first.created == 1
+    assert second.created == 1
+    assert second.items[0].version == 2
+    assert repository.documents[-1]["provider_event_ids"] == {"espn": "736644"}

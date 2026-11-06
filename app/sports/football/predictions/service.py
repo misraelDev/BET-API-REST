@@ -18,6 +18,7 @@ from app.sports.football.competitions.service import (
     CompetitionUnavailable,
 )
 from app.sports.football.predictions.catalog import (
+    EventSource,
     FootballLeague,
     KickoffSource,
     Period,
@@ -87,6 +88,19 @@ class KickoffResolver(Protocol):
 class ObservationProvider(Protocol):
     async def get_observation(
         self, event_id: int, league_slug: str | None = None
+    ) -> FootballObservation | None: ...
+
+
+class ObservationResolver(Protocol):
+    async def resolve(
+        self,
+        *,
+        event_source: str,
+        event_id: int,
+        league_slug: str | None,
+        home_team: str,
+        away_team: str,
+        match_date: date,
     ) -> FootballObservation | None: ...
 
 
@@ -162,6 +176,7 @@ class FootballPredictionService:
         *,
         kickoff_resolver: KickoffResolver | None = None,
         observation_provider: ObservationProvider | None = None,
+        observation_resolver: ObservationResolver | None = None,
         kickoff_timeout_seconds: float = 8.0,
         prompt_repository: PromptRepository | None = None,
         competition_repository: CompetitionRepository | None = None,
@@ -170,6 +185,7 @@ class FootballPredictionService:
         self._repository = repository
         self._kickoff_resolver = kickoff_resolver
         self._observation_provider = observation_provider
+        self._observation_resolver = observation_resolver
         self._kickoff_timeout_seconds = kickoff_timeout_seconds
         self._prompt_repository = prompt_repository
         self._competition_repository = competition_repository
@@ -238,7 +254,14 @@ class FootballPredictionService:
                 )
                 if not provider_id:
                     continue
-                key = (item.event_id, str(provider_id))
+                espn_event_id = self._espn_event_id(
+                    item.event_source.value,
+                    item.event_id,
+                    item.provider_event_ids,
+                )
+                if espn_event_id is None:
+                    continue
+                key = (espn_event_id, str(provider_id))
                 if key not in seen:
                     seen.add(key)
                     requests.append(key)
@@ -324,6 +347,15 @@ class FootballPredictionService:
             else None
         )
         if previous is not None:
+            previous_source = previous.get(
+                "event_source", EventSource.ESPN.value
+            )
+            if previous_source != item.event_source.value:
+                return self._rejected(
+                    item,
+                    "La nueva versión debe conservar event_source: el mismo "
+                    "event_id no puede cambiar de proveedor.",
+                )
             if _identity_hash(previous) != _identity_hash(
                 item.model_dump(mode="json")
             ):
@@ -339,6 +371,9 @@ class FootballPredictionService:
             version = 1
             supersedes = None
 
+        espn_event_id = self._espn_event_id(
+            item.event_source.value, item.event_id, item.provider_event_ids
+        )
         document = self._build_document(
             item,
             received_at=received_at,
@@ -347,7 +382,11 @@ class FootballPredictionService:
             supersedes_version_id=supersedes,
             request_hash=request_hash,
             previous=previous,
-            provider_kickoff=resolved.get(item.event_id),
+            provider_kickoff=(
+                resolved.get(espn_event_id)
+                if espn_event_id is not None
+                else None
+            ),
             analysis_prompt=analysis_prompt,
             competition=competition,
         )
@@ -368,6 +407,27 @@ class FootballPredictionService:
                 return self._replayed(existing)
             raise
         return self._created(stored)
+
+    @staticmethod
+    def _espn_event_id(
+        event_source: str,
+        event_id: int,
+        provider_event_ids: dict[str, str] | None,
+    ) -> int | None:
+        """Return the ESPN ID that can be verified and settled, if known.
+
+        ``event_id`` keeps the identity chosen by the analyst. The ESPN ID may
+        come from the provenance itself or from an explicit provider mapping.
+        """
+        mapped = (provider_event_ids or {}).get(EventSource.ESPN.value)
+        if mapped is not None:
+            try:
+                return int(mapped)
+            except (TypeError, ValueError):
+                return None
+        if event_source == EventSource.ESPN.value:
+            return int(event_id)
+        return None
 
     @staticmethod
     def _snapshot_document(snapshot: Any) -> dict[str, Any] | None:
@@ -442,6 +502,8 @@ class FootballPredictionService:
             "idempotency_key": item.idempotency_key,
             "request_hash": request_hash,
             "event_id": item.event_id,
+            "event_source": item.event_source.value,
+            "provider_event_ids": dict(item.provider_event_ids),
             "match": {
                 "event_id": item.event_id,
                 "date": match_date.isoformat(),
@@ -738,7 +800,10 @@ class FootballPredictionService:
         )
 
     async def settle_date(self, target_date: date) -> dict[str, Any]:
-        if self._observation_provider is None:
+        if (
+            self._observation_provider is None
+            and self._observation_resolver is None
+        ):
             raise RuntimeError("No hay proveedor de observaciones configurado.")
         documents = await self._repository.find_predictions(
             {
@@ -748,9 +813,12 @@ class FootballPredictionService:
             limit=500,
             sort=[("event_id", 1)],
         )
-        grouped: dict[int, list[dict[str, Any]]] = defaultdict(list)
+        grouped: dict[tuple[str, int], list[dict[str, Any]]] = defaultdict(list)
         for document in documents:
-            grouped[int(document["event_id"])].append(document)
+            source = str(
+                document.get("event_source", EventSource.ESPN.value)
+            )
+            grouped[(source, int(document["event_id"]))].append(document)
 
         summary: dict[str, Any] = {
             "predictions_matched": len(documents),
@@ -761,7 +829,7 @@ class FootballPredictionService:
             "errors": [],
         }
         settled_at = _utc(self._clock())
-        for event_id, group in grouped.items():
+        for (source, event_id), group in grouped.items():
             league = str(group[0]["match"]["league"])
             competition: dict[str, Any] | None = None
             if self._competition_repository is not None:
@@ -785,7 +853,7 @@ class FootballPredictionService:
                     league_slug = None
                     automatic_settlement = False
                     competition_name = league
-            if not automatic_settlement or not league_slug:
+            if not automatic_settlement:
                 summary["predictions_pending"] += len(group)
                 summary["errors"].append(
                     FootballResultsUpdateError(
@@ -799,10 +867,29 @@ class FootballPredictionService:
                     )
                 )
                 continue
+            match = group[0].get("match") or {}
             try:
-                observation = await self._observation_provider.get_observation(
-                    event_id, league_slug
-                )
+                if self._observation_resolver is not None:
+                    observation = await self._observation_resolver.resolve(
+                        event_source=source,
+                        event_id=event_id,
+                        league_slug=league_slug,
+                        home_team=str(match.get("home_team") or ""),
+                        away_team=str(match.get("away_team") or ""),
+                        match_date=target_date,
+                    )
+                else:
+                    legacy_event_id = self._espn_event_id(
+                        source,
+                        event_id,
+                        group[0].get("provider_event_ids") or {},
+                    )
+                    observation = (
+                        await self._observation_provider.get_observation(
+                            legacy_event_id or event_id,
+                            league_slug,
+                        )
+                    )
             except Exception as exc:  # noqa: BLE001 - se reporta por partido
                 logger.warning(
                     "football.predictions.observation_failed event_id=%s type=%s",
@@ -850,6 +937,8 @@ class FootballPredictionService:
                     "reason": result.reason,
                     "source": {
                         "name": observation.source.name,
+                        "provider": observation.source.provider,
+                        "event_id": observation.source.event_id,
                         "url": observation.source.url,
                         "retrieved_at": observation.source.retrieved_at,
                     },
@@ -869,6 +958,7 @@ __all__ = [
     "FootballPredictionService",
     "KickoffResolver",
     "ObservationProvider",
+    "ObservationResolver",
     "PredictionNotFound",
     "VersionNotFound",
 ]

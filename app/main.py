@@ -31,6 +31,10 @@ from app.sports.football.football_data_client import FootballDataClient
 from app.sports.football.resilient_client import ResilientFootballClient
 from app.sports.football.public_web_client import PublicWebFootballClient
 from app.sports.football.market_stats_client import FootballMarketStatsClient
+from app.sports.football.scores365_results_client import Scores365ResultsClient
+from app.sports.football.thesportsdb_results_client import (
+    TheSportsDbResultsClient,
+)
 from app.sports.football.competitions.repository import CompetitionRepository
 from app.sports.football.competitions.router import router as football_competitions_router
 from app.sports.football.competitions.service import CompetitionService
@@ -43,6 +47,9 @@ from app.sports.football.predictions.router import (
 from app.sports.football.predictions.service import (
     EspnKickoffResolver,
     FootballPredictionService as VersionedFootballPredictionService,
+)
+from app.sports.football.predictions.observation_sources import (
+    MultiSourceObservationResolver,
 )
 from app.sports.football.rankings.repository import FootballRankingRepository
 from app.sports.football.rankings.router import router as football_rankings_router
@@ -142,6 +149,19 @@ async def lifespan(app: FastAPI):
     espn_football_results = EspnFootballResultsClient(
         timeout_seconds=settings.request_timeout_seconds
     )
+    thesportsdb_football_results = TheSportsDbResultsClient(
+        timeout_seconds=settings.request_timeout_seconds
+    )
+    scores365_football_results = Scores365ResultsClient(
+        timeout_seconds=settings.request_timeout_seconds
+    )
+    football_observation_resolver = MultiSourceObservationResolver(
+        {
+            "espn": espn_football_results,
+            "thesportsdb": thesportsdb_football_results,
+            "365scores": scores365_football_results,
+        }
+    )
     football_prediction_service = VersionedFootballPredictionService(
         football_predictions_repository,
         kickoff_resolver=(
@@ -150,6 +170,7 @@ async def lifespan(app: FastAPI):
             else None
         ),
         observation_provider=espn_football_results,
+        observation_resolver=football_observation_resolver,
         kickoff_timeout_seconds=settings.football_kickoff_timeout_seconds,
         prompt_repository=prompt_repository,
         competition_repository=football_competitions_repository,
@@ -217,6 +238,8 @@ async def lifespan(app: FastAPI):
     await app.state.football_competitions_repository.close()
     await app.state.football_ranking_repository.close()
     await app.state.espn_football_results.close()
+    await thesportsdb_football_results.close()
+    await scores365_football_results.close()
 
 
 async def _run_baseball_settlement_loop(
@@ -236,7 +259,7 @@ async def _run_baseball_settlement_loop(
 
 app = FastAPI(
     title="BET Analytics API",
-    version="1.8.0",
+    version="1.9.0",
     description=(
         "Registro, consulta y liquidación de predicciones deportivas. "
         "El registro es manual: la API ya no calcula probabilidades."

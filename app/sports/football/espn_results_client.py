@@ -1,7 +1,7 @@
 import asyncio
 import re
 import unicodedata
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Any
 
 import httpx
@@ -11,6 +11,7 @@ from app.sports.football.predictions.observation import (
     FootballObservation,
     build_observation,
 )
+from app.sports.football.predictions.source_matching import same_match
 
 
 ESPN_LEAGUES = ("mex.1", "bra.1", "concacaf.leagues.cup")
@@ -137,6 +138,62 @@ class EspnFootballResultsClient:
     ) -> datetime | None:
         observation = await self.get_observation(event_id, league_slug)
         return observation.kickoff if observation else None
+
+    async def find_observation(
+        self,
+        home_team: str,
+        away_team: str,
+        target_date: date,
+        league_slug: str | None = None,
+    ) -> FootballObservation | None:
+        """Busca el partido por equipos y fecha cuando el ID no es de ESPN."""
+        if not league_slug:
+            return None
+        payload = await self._get(
+            f"/{league_slug}/scoreboard",
+            {
+                "dates": target_date.strftime("%Y%m%d"),
+                "limit": 100,
+            },
+        )
+        for event in payload.get("events") or []:
+            competition = (event.get("competitions") or [{}])[0]
+            competitors = competition.get("competitors") or []
+            home = next(
+                (
+                    item
+                    for item in competitors
+                    if item.get("homeAway") == "home"
+                ),
+                None,
+            )
+            away = next(
+                (
+                    item
+                    for item in competitors
+                    if item.get("homeAway") == "away"
+                ),
+                None,
+            )
+            if not home or not away:
+                continue
+            if not same_match(
+                home_team,
+                away_team,
+                (home.get("team") or {}).get("displayName"),
+                (away.get("team") or {}).get("displayName"),
+            ):
+                continue
+            try:
+                event_id = int(event["id"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            observation = await self.get_observation(
+                event_id, league_slug
+            )
+            if observation is not None:
+                return observation
+        return None
 
     async def _get(self, path: str, params: dict[str, Any]) -> dict[str, Any]:
         response = await self._client.get(path, params=params)

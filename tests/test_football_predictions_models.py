@@ -333,3 +333,61 @@ def test_generic_prompt_id_requires_sport_and_name():
             analysis_prompt_version_id="a" * 32,
             items=[FootballPredictionCreate(**payload())],
         )
+
+
+def test_event_source_defaults_to_espn():
+    item = FootballPredictionCreate(**payload())
+
+    assert item.event_source == "espn"
+    assert item.provider_event_ids == {}
+
+
+def test_provider_event_ids_are_normalized():
+    item = FootballPredictionCreate(
+        **payload(
+            event_id=987654,
+            event_source="sofascore",
+            provider_event_ids={
+                "ESPN": 736644,
+                "SofaScore": 987654,
+                "365Scores": 555,
+            },
+        )
+    )
+
+    assert item.event_source == "sofascore"
+    assert item.provider_event_ids == {
+        "espn": "736644",
+        "sofascore": "987654",
+        "365scores": "555",
+    }
+
+
+def test_provider_event_id_of_current_source_must_match_event_id():
+    with pytest.raises(ValidationError, match="coincidir"):
+        FootballPredictionCreate(
+            **payload(
+                event_id=987654,
+                event_source="sofascore",
+                provider_event_ids={"sofascore": "111111"},
+            )
+        )
+
+
+def test_first_team_to_score_group_rejects_mixed_event_sources():
+    with pytest.raises(ValidationError, match="fuentes"):
+        FootballPredictionBatchRequest(
+            analysis_prompt_version_id="a" * 32,
+            items=[
+                _first_goal_item("home", 52.0),
+                _first_goal_item(
+                    "away",
+                    31.0,
+                    idempotency_key="test-key-0002",
+                    event_source="sofascore",
+                ),
+                _first_goal_item(
+                    "none", 17.0, idempotency_key="test-key-0003"
+                ),
+            ],
+        )

@@ -8,7 +8,7 @@ registro genérico permite agregar modelos analíticos especializados sin cambia
 el código, por ejemplo `football.first_goal_model`.
 
 Contrato desplegado: `https://start-bet-api-rest.xzpbpr.easypanel.host/openapi.json`
-(al desplegar este cambio, versión de API `1.8.0`). El contrato aislado está en
+(al desplegar este cambio, versión de API `1.9.0`). El contrato aislado está en
 `openapi/prompts.yaml`.
 
 ## Identidad genérica `prompt_id`

@@ -554,6 +554,23 @@ class KickoffSource(StrEnum):
     UNKNOWN = "unknown"
 
 
+class EventSource(StrEnum):
+    """Proveedor del que proviene ``event_id``.
+
+    La identidad del partido se guarda con el número y su procedencia. La
+    liquidación consulta esa fuente y, si no reconoce el partido, lo busca por
+    equipos y fecha en las demás fuentes configuradas.
+    """
+
+    ESPN = "espn"
+    SOFASCORE = "sofascore"
+    SCORES365 = "365scores"
+    SOCCERPUNTER = "soccerpunter"
+    THESPORTSDB = "thesportsdb"
+    API_FOOTBALL = "api_football"
+    OTHER = "other"
+
+
 RULE_VERSION = "football-settlement-v2"
 
 

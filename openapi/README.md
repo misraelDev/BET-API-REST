@@ -7,7 +7,7 @@ todo mezclado.
 | Archivo | Contenido | Rutas | Operaciones | Esquemas |
 | --- | --- | --- | --- | --- |
 | [`system.yaml`](system.yaml) | `/health`, `/api/v1/sports`, `/api/v1/records` | 3 | 3 | 6 |
-| [`football.yaml`](football.yaml) | `/api/v1/football/*` | 10 | 15 | 51 |
+| [`football.yaml`](football.yaml) | `/api/v1/football/*` | 10 | 15 | 52 |
 | [`nba.yaml`](nba.yaml) | `/api/v1/nba/*` | 2 | 2 | 6 |
 | [`baseball.yaml`](baseball.yaml) | `/api/v1/baseball/*` | 5 | 5 | 7 |
 | [`tennis.yaml`](tennis.yaml) | `/api/v1/tennis/*` | 3 | 3 | 7 |
@@ -22,7 +22,7 @@ transversal a los cuatro deportes.
 ## Versión
 
 Los seis archivos comparten la versión OpenAPI `3.1.0` y la versión de la API
-`1.8.0`.
+`1.9.0`.
 
 ## Regenerar
 
