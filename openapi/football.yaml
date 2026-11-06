@@ -3,7 +3,7 @@ info:
   title: BET Analytics API - Fútbol
   description: Contrato OpenAPI de fútbol. Incluye solo las rutas `/api/v1/football` y los esquemas que
     esas rutas referencian. El resto de deportes está en archivos separados dentro de `openapi/`.
-  version: 1.7.0
+  version: 1.8.0
   contact:
     name: BET Analytics
   license:
@@ -164,6 +164,7 @@ paths:
             examples:
               lote_liga_mx:
                 value:
+                  analysis_prompt_id: football.analysis
                   analysis_prompt_version_id: 3be3ffee060a4f01b01057c32f5ae197
                   items:
                   - prediction_id: 3d0f6f3e5c1a4f0ab1c2d3e4f5a6b7c8
@@ -203,6 +204,89 @@ paths:
                     - name: ESPN
                     analyst: ana.garcia
                     method_version: analista-v1
+              grupo_primer_gol:
+                value:
+                  analysis_prompt_id: football.first_goal_model
+                  analysis_prompt_version_id: 3be3ffee060a4f01b01057c32f5ae197
+                  items:
+                  - idempotency_key: 2026-10-24-liga-mx-736644-first-goal-home
+                    event_id: 736644
+                    match_date: '2026-10-24'
+                    league: liga_mx
+                    home_team: Pumas UNAM
+                    away_team: Necaxa
+                    market: first_team_to_score
+                    period: full_time
+                    selection: home
+                    probability: 52.0
+                    confidence: 4
+                    rationale: El local genera más llegadas y anota primero.
+                    sources:
+                    - name: ESPN
+                    analyst: ana.garcia
+                    method_version: first_goal_v2
+                    forecast_group_id: grp-first-goal-736644
+                    model_snapshot:
+                      model_name: first_goal
+                      model_version: first_goal_v2
+                      lambdas:
+                        home: 1.42
+                        away: 0.87
+                      probabilities:
+                        home: 52.0
+                        away: 31.0
+                        none: 17.0
+                      intervals:
+                        home:
+                          lower: 46.0
+                          upper: 58.0
+                          confidence: 0.9
+                      layer_contributions:
+                        attack: 0.61
+                        defense: 0.39
+                      odds:
+                        home: 1.9
+                        away: 3.4
+                        none: 12.0
+                      sources:
+                      - name: ESPN
+                      queried_at: '2026-10-24T10:00:00-06:00'
+                      missing_data:
+                      - lineups
+                  - idempotency_key: 2026-10-24-liga-mx-736644-first-goal-away
+                    event_id: 736644
+                    match_date: '2026-10-24'
+                    league: liga_mx
+                    home_team: Pumas UNAM
+                    away_team: Necaxa
+                    market: first_team_to_score
+                    period: full_time
+                    selection: away
+                    probability: 31.0
+                    confidence: 3
+                    rationale: El visitante aprovecha espacios al contragolpe.
+                    sources:
+                    - name: ESPN
+                    analyst: ana.garcia
+                    method_version: first_goal_v2
+                    forecast_group_id: grp-first-goal-736644
+                  - idempotency_key: 2026-10-24-liga-mx-736644-first-goal-none
+                    event_id: 736644
+                    match_date: '2026-10-24'
+                    league: liga_mx
+                    home_team: Pumas UNAM
+                    away_team: Necaxa
+                    market: first_team_to_score
+                    period: full_time
+                    selection: none
+                    probability: 17.0
+                    confidence: 2
+                    rationale: Escenario de 0-0 con pocas llegadas claras.
+                    sources:
+                    - name: ESPN
+                    analyst: ana.garcia
+                    method_version: first_goal_v2
+                    forecast_group_id: grp-first-goal-736644
       responses:
         '201':
           description: Al menos una selección se registró como versión nueva.
@@ -492,6 +576,15 @@ paths:
           - $ref: '#/components/schemas/TimingStatus'
           - type: 'null'
           title: Timing
+      - name: forecast_group_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            pattern: ^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$
+          - type: 'null'
+          title: Forecast Group Id
       - name: include_versions
         in: query
         required: false
@@ -1803,6 +1896,15 @@ components:
       title: FootballPredictionBatchItemResult
     FootballPredictionBatchRequest:
       properties:
+        analysis_prompt_id:
+          type: string
+          pattern: ^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$
+          title: Analysis Prompt Id
+          description: Identidad genérica del prompt de análisis, por ejemplo football.first_goal_model.
+            Si se omite, se usa football.analysis para conservar el contrato anterior.
+          default: football.analysis
+          examples:
+          - football.first_goal_model
         analysis_prompt_version_id:
           type: string
           pattern: ^[A-Fa-f0-9]{32}$
@@ -2075,6 +2177,23 @@ components:
           - type: 'null'
           title: Notes
           description: Nota libre para el análisis posterior.
+        forecast_group_id:
+          anyOf:
+          - type: string
+            pattern: ^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$
+          - type: 'null'
+          title: Forecast Group Id
+          description: Identificador de grupo para first_team_to_score. Las selecciones home, away y none
+            del mismo grupo deben enviarse juntas y sus probabilidades deben sumar 100. La API solo valida
+            y almacena; no calcula ni ordena.
+          examples:
+          - grp-first-goal-736644
+        model_snapshot:
+          anyOf:
+          - $ref: '#/components/schemas/ModelSnapshot'
+          - type: 'null'
+          description: Instantánea estructurada de entradas y salidas del modelo que generó la selección.
+            Es independiente de method_version.
       additionalProperties: false
       type: object
       required:
@@ -2165,6 +2284,15 @@ components:
           description: Identificador exacto de la versión evaluada.
           examples:
           - 9a1c2e3f4b5d6a7c8e9f0a1b2c3d4e5f
+        evaluation_prompt_id:
+          type: string
+          pattern: ^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$
+          title: Evaluation Prompt Id
+          description: Identidad genérica del prompt de evaluación, por ejemplo football.first_goal_evaluation.
+            Si se omite, se usa football.evaluation para conservar el contrato anterior.
+          default: football.evaluation
+          examples:
+          - football.first_goal_evaluation
         evaluation_prompt_version_id:
           type: string
           pattern: ^[A-Fa-f0-9]{32}$
@@ -2231,6 +2359,7 @@ components:
       examples:
       - analyst: ana.garcia
         diagnosis: La lectura del primer tiempo fue acertada.
+        evaluation_prompt_id: football.evaluation
         evaluation_prompt_version_id: 90fcd2406d3e4cb2bea14502e1247311
         learnings:
         - Revisar alineaciones antes del cierre.
@@ -2630,6 +2759,132 @@ components:
       - shots_on_target_team
       - shots_on_target_player
       title: Market
+    ModelSnapshot:
+      properties:
+        model_name:
+          anyOf:
+          - type: string
+            maxLength: 120
+            minLength: 1
+          - type: 'null'
+          title: Model Name
+          description: Nombre del modelo, por ejemplo first_goal.
+          examples:
+          - first_goal
+        model_version:
+          anyOf:
+          - type: string
+            maxLength: 64
+            minLength: 1
+          - type: 'null'
+          title: Model Version
+          description: Versión del algoritmo, por ejemplo first_goal_v2.
+          examples:
+          - first_goal_v2
+        generated_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Generated At
+          description: Hora en que el modelo generó la salida, con offset.
+        queried_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Queried At
+          description: Hora de consulta de las fuentes, con offset.
+        lambdas:
+          additionalProperties:
+            type: number
+          type: object
+          title: Lambdas
+          description: Parámetros estimados, por ejemplo goles esperados por lado.
+          examples:
+          - away: 0.87
+            home: 1.42
+        probabilities:
+          additionalProperties:
+            type: number
+          type: object
+          title: Probabilities
+          description: Probabilidades de las salidas del modelo (0-100).
+          examples:
+          - away: 31.0
+            home: 52.0
+            none: 17.0
+        intervals:
+          additionalProperties:
+            $ref: '#/components/schemas/ModelSnapshotInterval'
+          type: object
+          title: Intervals
+          description: Intervalos de confianza por salida.
+        layer_contributions:
+          additionalProperties:
+            type: number
+          type: object
+          title: Layer Contributions
+          description: Contribución de cada capa o componente del modelo.
+        odds:
+          additionalProperties:
+            type: number
+          type: object
+          title: Odds
+          description: Cuotas usadas por el modelo al momento de la consulta.
+        sources:
+          items:
+            $ref: '#/components/schemas/PredictionSource'
+          type: array
+          maxItems: 20
+          title: Sources
+          description: Fuentes consultadas por el modelo.
+        missing_data:
+          items:
+            type: string
+          type: array
+          maxItems: 50
+          title: Missing Data
+          description: Datos ausentes o no verificables al generar la salida.
+        metadata:
+          additionalProperties: true
+          type: object
+          title: Metadata
+          description: Espacio extensible para datos adicionales del modelo.
+      additionalProperties: false
+      type: object
+      title: ModelSnapshot
+      description: 'Instantánea estructurada de entradas y salidas del modelo analítico.
+
+
+        Permite recalibrar el algoritmo después sin depender de logs externos. No
+
+        sustituye a ``method_version``: esta instantánea describe una ejecución
+
+        concreta y puede repetirse con la misma versión del método.'
+    ModelSnapshotInterval:
+      properties:
+        lower:
+          type: number
+          title: Lower
+        upper:
+          type: number
+          title: Upper
+        confidence:
+          anyOf:
+          - type: number
+            maximum: 1.0
+            minimum: 0.0
+          - type: 'null'
+          title: Confidence
+          description: Nivel de confianza del intervalo, entre 0 y 1.
+      additionalProperties: false
+      type: object
+      required:
+      - lower
+      - upper
+      title: ModelSnapshotInterval
+      description: Intervalo de confianza de una salida del modelo.
     Period:
       type: string
       enum:
@@ -3358,6 +3613,15 @@ components:
           - type: string
           - type: 'null'
           title: Notes
+        forecast_group_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Forecast Group Id
+        model_snapshot:
+          anyOf:
+          - $ref: '#/components/schemas/ModelSnapshot'
+          - type: 'null'
         created_at:
           type: string
           format: date-time

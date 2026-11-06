@@ -25,18 +25,22 @@ públicas que se describen abajo.
 
 ## Flujo de trabajo
 
-Los prompts operativos se consultan en `/api/v1/prompts/{sport}/{prompt_type}`.
-Usa `analysis` para un análisis nuevo y `evaluation` para revisar pronósticos.
-Sin parámetros se obtiene la revisión vigente; para una ejecución reproducible
-usa `version_id` explícito. La biblioteca local está en [`promt/`](../promt/).
+Los prompts operativos se consultan por su identidad genérica
+`/api/v1/prompts/{prompt_id}`, por ejemplo `football.analysis`,
+`football.evaluation` o `football.first_goal_model`. Usa `analysis` para un
+análisis nuevo y `evaluation` para revisar pronósticos; las rutas históricas
+`/api/v1/prompts/{sport}/{prompt_type}` siguen disponibles. Sin parámetros se
+obtiene la revisión vigente; para una ejecución reproducible usa `version_id`
+explícito. La biblioteca local está en [`promt/`](../promt/).
 
 Al iniciar una ejecución, resuelve el prompt vigente una sola vez y conserva ese
 `version_id` hasta terminar, aunque se publique otra revisión. En pronósticos
-football envíalo como `analysis_prompt_version_id` en el lote; para registros
-manuales envíalo en el cuerpo de `POST /api/v1/records`. En evaluaciones de
-fútbol envía `evaluation_prompt_version_id`. La API verifica la existencia y
-guarda `prompt_id`, `version` y `version_id`. `method_version` identifica el
-método y debe seguir registrándose por separado. Las referencias de registros
+football envíalo como `analysis_prompt_id` y `analysis_prompt_version_id` en el
+lote; para registros manuales envía el `version_id` en el cuerpo de
+`POST /api/v1/records`. En evaluaciones de fútbol envía `evaluation_prompt_id` y
+`evaluation_prompt_version_id`. La API verifica la existencia y guarda
+`prompt_id`, `version` y `version_id`. `method_version` identifica el método y
+debe seguir registrándose por separado. Las referencias de registros
 antiguos sin evidencia no se reconstruyen.
 
 ### Registro simple (cualquier deporte)

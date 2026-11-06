@@ -29,6 +29,7 @@ from app.sports.football.predictions.catalog import (
     market_catalog,
 )
 from app.sports.football.predictions.models import (
+    FORECAST_GROUP_ID_PATTERN,
     FootballEvaluationListResponse,
     FootballLeagueCatalogItem,
     FootballMarketCatalogResponse,
@@ -52,6 +53,7 @@ from app.sports.football.predictions.service import (
 router = APIRouter(prefix="/api/v1/football", tags=["Football Predictions"])
 
 _BATCH_REQUEST_EXAMPLE: dict[str, Any] = {
+    "analysis_prompt_id": "football.analysis",
     "analysis_prompt_version_id": "3be3ffee060a4f01b01057c32f5ae197",
     "items": [
         {
@@ -98,6 +100,81 @@ _BATCH_REQUEST_EXAMPLE: dict[str, Any] = {
             "method_version": "analista-v1",
         },
     ]
+}
+
+_FIRST_GOAL_BATCH_EXAMPLE: dict[str, Any] = {
+    "analysis_prompt_id": "football.first_goal_model",
+    "analysis_prompt_version_id": "3be3ffee060a4f01b01057c32f5ae197",
+    "items": [
+        {
+            "idempotency_key": "2026-10-24-liga-mx-736644-first-goal-home",
+            "event_id": 736644,
+            "match_date": "2026-10-24",
+            "league": "liga_mx",
+            "home_team": "Pumas UNAM",
+            "away_team": "Necaxa",
+            "market": "first_team_to_score",
+            "period": "full_time",
+            "selection": "home",
+            "probability": 52.0,
+            "confidence": 4,
+            "rationale": "El local genera más llegadas y anota primero.",
+            "sources": [{"name": "ESPN"}],
+            "analyst": "ana.garcia",
+            "method_version": "first_goal_v2",
+            "forecast_group_id": "grp-first-goal-736644",
+            "model_snapshot": {
+                "model_name": "first_goal",
+                "model_version": "first_goal_v2",
+                "lambdas": {"home": 1.42, "away": 0.87},
+                "probabilities": {"home": 52.0, "away": 31.0, "none": 17.0},
+                "intervals": {
+                    "home": {"lower": 46.0, "upper": 58.0, "confidence": 0.9}
+                },
+                "layer_contributions": {"attack": 0.61, "defense": 0.39},
+                "odds": {"home": 1.9, "away": 3.4, "none": 12.0},
+                "sources": [{"name": "ESPN"}],
+                "queried_at": "2026-10-24T10:00:00-06:00",
+                "missing_data": ["lineups"],
+            },
+        },
+        {
+            "idempotency_key": "2026-10-24-liga-mx-736644-first-goal-away",
+            "event_id": 736644,
+            "match_date": "2026-10-24",
+            "league": "liga_mx",
+            "home_team": "Pumas UNAM",
+            "away_team": "Necaxa",
+            "market": "first_team_to_score",
+            "period": "full_time",
+            "selection": "away",
+            "probability": 31.0,
+            "confidence": 3,
+            "rationale": "El visitante aprovecha espacios al contragolpe.",
+            "sources": [{"name": "ESPN"}],
+            "analyst": "ana.garcia",
+            "method_version": "first_goal_v2",
+            "forecast_group_id": "grp-first-goal-736644",
+        },
+        {
+            "idempotency_key": "2026-10-24-liga-mx-736644-first-goal-none",
+            "event_id": 736644,
+            "match_date": "2026-10-24",
+            "league": "liga_mx",
+            "home_team": "Pumas UNAM",
+            "away_team": "Necaxa",
+            "market": "first_team_to_score",
+            "period": "full_time",
+            "selection": "none",
+            "probability": 17.0,
+            "confidence": 2,
+            "rationale": "Escenario de 0-0 con pocas llegadas claras.",
+            "sources": [{"name": "ESPN"}],
+            "analyst": "ana.garcia",
+            "method_version": "first_goal_v2",
+            "forecast_group_id": "grp-first-goal-736644",
+        },
+    ],
 }
 
 _BATCH_RESPONSE_EXAMPLE: dict[str, Any] = {
@@ -426,7 +503,12 @@ async def register_predictions(
     response: Response,
     payload: Annotated[
         FootballPredictionBatchRequest,
-        Body(openapi_examples={"lote_liga_mx": {"value": _BATCH_REQUEST_EXAMPLE}}),
+        Body(
+            openapi_examples={
+                "lote_liga_mx": {"value": _BATCH_REQUEST_EXAMPLE},
+                "grupo_primer_gol": {"value": _FIRST_GOAL_BATCH_EXAMPLE},
+            }
+        ),
     ],
 ) -> FootballPredictionBatchResponse:
     service = _service(request)
@@ -491,6 +573,9 @@ async def list_predictions(
     settlement_status: SettlementStatus | None = Query(default=None),
     period: Period | None = Query(default=None),
     timing: TimingStatus | None = Query(default=None),
+    forecast_group_id: str | None = Query(
+        default=None, pattern=FORECAST_GROUP_ID_PATTERN
+    ),
     include_versions: bool = Query(default=False),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=200),
@@ -531,6 +616,7 @@ async def list_predictions(
             settlement_status=settlement_status,
             period=period,
             timing=timing,
+            forecast_group_id=forecast_group_id,
             include_versions=include_versions,
             page=page,
             page_size=page_size,

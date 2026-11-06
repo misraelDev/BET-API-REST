@@ -15,9 +15,10 @@ from pydantic import (
     model_validator,
 )
 
-from app.prompts.models import PromptReference
+from app.prompts.models import PROMPT_ID_PATTERN, PromptReference
 
 from app.sports.football.predictions.catalog import (
+    MARKET_FIRST_TEAM,
     KickoffSource,
     Market,
     Period,
@@ -29,6 +30,7 @@ from app.sports.football.predictions.catalog import (
 
 PREDICTION_ID_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9_-]{7,63}$"
 IDEMPOTENCY_KEY_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$"
+FORECAST_GROUP_ID_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$"
 Side = Literal["home", "away"]
 
 
@@ -71,6 +73,116 @@ class PredictionSource(BaseModel):
         description="Nota sobre qué dato se tomó de esta fuente.",
         examples=["Estadísticas de córners y tarjetas del partido."],
     )
+
+
+class ModelSnapshotInterval(BaseModel):
+    """Intervalo de confianza de una salida del modelo."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    lower: float
+    upper: float
+    confidence: float | None = Field(
+        default=None,
+        ge=0,
+        le=1,
+        description="Nivel de confianza del intervalo, entre 0 y 1.",
+    )
+
+    @model_validator(mode="after")
+    def _ordered_interval(self) -> Self:
+        if self.lower > self.upper:
+            raise ValueError("lower no puede ser mayor que upper.")
+        return self
+
+
+class ModelSnapshot(BaseModel):
+    """Instantánea estructurada de entradas y salidas del modelo analítico.
+
+    Permite recalibrar el algoritmo después sin depender de logs externos. No
+    sustituye a ``method_version``: esta instantánea describe una ejecución
+    concreta y puede repetirse con la misma versión del método.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    model_name: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=120,
+        description="Nombre del modelo, por ejemplo first_goal.",
+        examples=["first_goal"],
+    )
+    model_version: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=64,
+        description="Versión del algoritmo, por ejemplo first_goal_v2.",
+        examples=["first_goal_v2"],
+    )
+    generated_at: datetime | None = Field(
+        default=None,
+        description="Hora en que el modelo generó la salida, con offset.",
+    )
+    queried_at: datetime | None = Field(
+        default=None,
+        description="Hora de consulta de las fuentes, con offset.",
+    )
+    lambdas: dict[str, float] = Field(
+        default_factory=dict,
+        description="Parámetros estimados, por ejemplo goles esperados por lado.",
+        examples=[{"home": 1.42, "away": 0.87}],
+    )
+    probabilities: dict[str, float] = Field(
+        default_factory=dict,
+        description="Probabilidades de las salidas del modelo (0-100).",
+        examples=[{"home": 52.0, "away": 31.0, "none": 17.0}],
+    )
+    intervals: dict[str, ModelSnapshotInterval] = Field(
+        default_factory=dict,
+        description="Intervalos de confianza por salida.",
+    )
+    layer_contributions: dict[str, float] = Field(
+        default_factory=dict,
+        description="Contribución de cada capa o componente del modelo.",
+    )
+    odds: dict[str, float] = Field(
+        default_factory=dict,
+        description="Cuotas usadas por el modelo al momento de la consulta.",
+    )
+    sources: list[PredictionSource] = Field(
+        default_factory=list,
+        max_length=20,
+        description="Fuentes consultadas por el modelo.",
+    )
+    missing_data: list[str] = Field(
+        default_factory=list,
+        max_length=50,
+        description="Datos ausentes o no verificables al generar la salida.",
+    )
+    metadata: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Espacio extensible para datos adicionales del modelo.",
+    )
+
+    @field_validator("generated_at", "queried_at")
+    @classmethod
+    def _snapshot_timezone(
+        cls, value: datetime | None, info
+    ) -> datetime | None:
+        if value is None:
+            return None
+        return _aware(value, info.field_name)
+
+    @field_validator("probabilities")
+    @classmethod
+    def _probability_bounds(cls, value: dict[str, float]) -> dict[str, float]:
+        for key, probability in value.items():
+            if not 0 <= probability <= 100:
+                raise ValueError(
+                    f"La probabilidad {key!r} debe estar entre 0 y 100."
+                )
+        return value
 
 
 class FootballPredictionCreate(BaseModel):
@@ -284,6 +396,24 @@ class FootballPredictionCreate(BaseModel):
         max_length=1000,
         description="Nota libre para el análisis posterior.",
     )
+    forecast_group_id: str | None = Field(
+        default=None,
+        pattern=FORECAST_GROUP_ID_PATTERN,
+        description=(
+            "Identificador de grupo para first_team_to_score. Las selecciones "
+            "home, away y none del mismo grupo deben enviarse juntas y sus "
+            "probabilidades deben sumar 100. La API solo valida y almacena; no "
+            "calcula ni ordena."
+        ),
+        examples=["grp-first-goal-736644"],
+    )
+    model_snapshot: ModelSnapshot | None = Field(
+        default=None,
+        description=(
+            "Instantánea estructurada de entradas y salidas del modelo que "
+            "generó la selección. Es independiente de method_version."
+        ),
+    )
 
     @field_validator("kickoff", "generated_at")
     @classmethod
@@ -406,6 +536,14 @@ class FootballPredictionCreate(BaseModel):
         if self.player_id is not None and self.player is None:
             raise ValueError("player_id solo aplica cuando se envía player.")
 
+        if (
+            self.forecast_group_id is not None
+            and self.market != Market.FIRST_TEAM_TO_SCORE
+        ):
+            raise ValueError(
+                "forecast_group_id solo aplica al mercado first_team_to_score."
+            )
+
         return self
 
     @property
@@ -430,6 +568,16 @@ class FootballPredictionBatchRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    analysis_prompt_id: str = Field(
+        default="football.analysis",
+        pattern=PROMPT_ID_PATTERN,
+        description=(
+            "Identidad genérica del prompt de análisis, por ejemplo "
+            "football.first_goal_model. Si se omite, se usa football.analysis "
+            "para conservar el contrato anterior."
+        ),
+        examples=["football.first_goal_model"],
+    )
     analysis_prompt_version_id: str = Field(
         pattern=r"^[A-Fa-f0-9]{32}$",
         description=(
@@ -444,6 +592,43 @@ class FootballPredictionBatchRequest(BaseModel):
         max_length=100,
         description="Selecciones a registrar. Máximo 100 por petición.",
     )
+
+    @model_validator(mode="after")
+    def _validate_forecast_groups(self) -> Self:
+        groups: dict[str, list[FootballPredictionCreate]] = {}
+        for item in self.items:
+            if item.forecast_group_id is not None:
+                groups.setdefault(item.forecast_group_id, []).append(item)
+
+        for group_id, group in groups.items():
+            if len(group) != 3:
+                raise ValueError(
+                    f"forecast_group_id {group_id!r} debe agrupar exactamente "
+                    "tres selecciones: home, away y none."
+                )
+            selections = {item.selection for item in group}
+            if selections != set(MARKET_FIRST_TEAM):
+                raise ValueError(
+                    f"forecast_group_id {group_id!r} debe incluir home, away y "
+                    "none, sin selecciones repetidas."
+                )
+            if len({item.event_id for item in group}) != 1:
+                raise ValueError(
+                    f"forecast_group_id {group_id!r} no puede mezclar partidos "
+                    "distintos."
+                )
+            if len({item.period for item in group}) != 1:
+                raise ValueError(
+                    f"forecast_group_id {group_id!r} no puede mezclar periodos "
+                    "distintos."
+                )
+            total = sum(item.probability for item in group)
+            if abs(total - 100.0) > 0.01:
+                raise ValueError(
+                    f"Las probabilidades de forecast_group_id {group_id!r} "
+                    f"deben sumar 100%; suma actual: {total:g}."
+                )
+        return self
 
     @model_validator(mode="after")
     def _unique_keys(self) -> Self:
@@ -542,6 +727,8 @@ class StoredPrediction(BaseModel):
     settlement_status: SettlementStatus
     settlement: PredictionSettlement | None = None
     notes: str | None = None
+    forecast_group_id: str | None = None
+    model_snapshot: ModelSnapshot | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -596,6 +783,7 @@ class FootballPredictionEvaluationCreate(BaseModel):
             "examples": [
                 {
                     "version_id": "9a1c2e3f4b5d6a7c8e9f0a1b2c3d4e5f",
+                    "evaluation_prompt_id": "football.evaluation",
                     "evaluation_prompt_version_id": "90fcd2406d3e4cb2bea14502e1247311",
                     "analyst": "ana.garcia",
                     "diagnosis": "La lectura del primer tiempo fue acertada.",
@@ -612,6 +800,16 @@ class FootballPredictionEvaluationCreate(BaseModel):
         max_length=64,
         description="Identificador exacto de la versión evaluada.",
         examples=["9a1c2e3f4b5d6a7c8e9f0a1b2c3d4e5f"],
+    )
+    evaluation_prompt_id: str = Field(
+        default="football.evaluation",
+        pattern=PROMPT_ID_PATTERN,
+        description=(
+            "Identidad genérica del prompt de evaluación, por ejemplo "
+            "football.first_goal_evaluation. Si se omite, se usa "
+            "football.evaluation para conservar el contrato anterior."
+        ),
+        examples=["football.first_goal_evaluation"],
     )
     evaluation_prompt_version_id: str = Field(
         pattern=r"^[A-Fa-f0-9]{32}$",
@@ -741,6 +939,7 @@ def _source_from_stored(value: Any) -> Any:
 
 
 __all__ = [
+    "FORECAST_GROUP_ID_PATTERN",
     "FootballEvaluationListResponse",
     "FootballLeagueCatalogItem",
     "FootballMarketCatalogResponse",
@@ -754,6 +953,8 @@ __all__ = [
     "FootballPredictionListResponse",
     "FootballResultsUpdateError",
     "FootballSettlementSummary",
+    "ModelSnapshot",
+    "ModelSnapshotInterval",
     "PredictionSettlement",
     "PredictionSource",
     "SettlementSource",

@@ -27,6 +27,8 @@ RECEIVED_AT = datetime(2026, 10, 24, 17, 0, tzinfo=UTC)
 KICKOFF = datetime(2026, 10, 25, 2, 0, tzinfo=UTC)  # 2026-10-24 20:00 CDMX
 ANALYSIS_PROMPT_VERSION_ID = "a" * 32
 EVALUATION_PROMPT_VERSION_ID = "b" * 32
+FIRST_GOAL_PROMPT_VERSION_ID = "d" * 32
+FIRST_GOAL_EVALUATION_PROMPT_VERSION_ID = "e" * 32
 
 
 class FakePromptRepository:
@@ -35,6 +37,12 @@ class FakePromptRepository:
             ("football", "analysis", ANALYSIS_PROMPT_VERSION_ID): 1,
             ("football", "analysis", "c" * 32): 2,
             ("football", "evaluation", EVALUATION_PROMPT_VERSION_ID): 1,
+            ("football", "first_goal_model", FIRST_GOAL_PROMPT_VERSION_ID): 1,
+            (
+                "football",
+                "first_goal_evaluation",
+                FIRST_GOAL_EVALUATION_PROMPT_VERSION_ID,
+            ): 1,
             ("nba", "analysis", ANALYSIS_PROMPT_VERSION_ID): 1,
             ("baseball", "analysis", ANALYSIS_PROMPT_VERSION_ID): 1,
             ("tennis", "analysis", ANALYSIS_PROMPT_VERSION_ID): 1,
@@ -859,3 +867,176 @@ async def test_settle_date_requires_observation_provider():
         await service(FakeRepository(), observation_provider=None).settle_date(
             date(2026, 10, 24)
         )
+
+
+@pytest.mark.asyncio
+async def test_generic_analysis_prompt_reference_is_separate_from_method_version():
+    repository = FakeRepository()
+    result = await service(repository).register_batch(
+        FootballPredictionBatchRequest(
+            analysis_prompt_id="football.first_goal_model",
+            analysis_prompt_version_id=FIRST_GOAL_PROMPT_VERSION_ID,
+            items=[
+                payload(
+                    market="first_team_to_score",
+                    selection="home",
+                    method_version="first_goal_v2",
+                )
+            ],
+        )
+    )
+
+    assert result.created == 1
+    document = repository.documents[0]
+    assert document["analysis_prompt"] == {
+        "prompt_id": "football.first_goal_model",
+        "version": 1,
+        "version_id": FIRST_GOAL_PROMPT_VERSION_ID,
+    }
+    assert document["method_version"] == "first_goal_v2"
+    assert result.items[0].record.analysis_prompt.prompt_id == (
+        "football.first_goal_model"
+    )
+
+
+@pytest.mark.asyncio
+async def test_model_snapshot_is_stored_with_the_prediction():
+    repository = FakeRepository()
+    snapshot = {
+        "model_name": "first_goal",
+        "model_version": "first_goal_v2",
+        "lambdas": {"home": 1.42, "away": 0.87},
+        "probabilities": {"home": 52.0, "away": 31.0, "none": 17.0},
+        "intervals": {
+            "home": {"lower": 46.0, "upper": 58.0, "confidence": 0.9}
+        },
+        "layer_contributions": {"attack": 0.61, "defense": 0.39},
+        "odds": {"home": 1.9, "away": 3.4, "none": 12.0},
+        "sources": [{"name": "ESPN"}],
+        "queried_at": "2026-10-24T10:00:00-06:00",
+        "missing_data": ["lineups"],
+    }
+    result = await service(repository).register_batch(
+        batch(
+            payload(
+                market="first_team_to_score",
+                selection="home",
+                method_version="first_goal_v2",
+                model_snapshot=snapshot,
+            )
+        )
+    )
+
+    assert result.created == 1
+    stored = repository.documents[0]["model_snapshot"]
+    assert stored["lambdas"] == {"home": 1.42, "away": 0.87}
+    assert stored["probabilities"]["none"] == 17.0
+    assert stored["missing_data"] == ["lineups"]
+    assert stored["queried_at"] == datetime(
+        2026, 10, 24, 16, 0, tzinfo=UTC
+    )
+    assert repository.documents[0]["received_at"] == RECEIVED_AT
+
+
+@pytest.mark.asyncio
+async def test_first_team_to_score_group_is_stored_under_one_group_id():
+    repository = FakeRepository()
+    group = "grp-first-goal-736644"
+    result = await service(repository).register_batch(
+        batch(
+            payload(
+                idempotency_key="group-key-0001",
+                market="first_team_to_score",
+                selection="home",
+                probability=52.0,
+                forecast_group_id=group,
+            ),
+            payload(
+                idempotency_key="group-key-0002",
+                market="first_team_to_score",
+                selection="away",
+                probability=31.0,
+                forecast_group_id=group,
+            ),
+            payload(
+                idempotency_key="group-key-0003",
+                market="first_team_to_score",
+                selection="none",
+                probability=17.0,
+                forecast_group_id=group,
+            ),
+        )
+    )
+
+    assert result.created == 3
+    assert {item.record.forecast_group_id for item in result.items} == {group}
+    assert sum(
+        document["probability"] for document in repository.documents
+    ) == 100.0
+    listed = await service(repository).list_predictions(
+        forecast_group_id=group
+    )
+    assert listed.total == 3
+
+
+@pytest.mark.asyncio
+async def test_idempotent_replay_includes_generic_prompt_and_snapshot():
+    repository = FakeRepository()
+    subject = service(repository)
+    snapshot = {
+        "model_name": "first_goal",
+        "probabilities": {"home": 52.0, "away": 31.0, "none": 17.0},
+    }
+    request = FootballPredictionBatchRequest(
+        analysis_prompt_id="football.first_goal_model",
+        analysis_prompt_version_id=FIRST_GOAL_PROMPT_VERSION_ID,
+        items=[
+            payload(
+                market="first_team_to_score",
+                selection="home",
+                model_snapshot=snapshot,
+            )
+        ],
+    )
+    first = await subject.register_batch(request)
+    second = await subject.register_batch(request)
+
+    assert first.created == 1
+    assert second.replayed == 1
+    assert len(repository.documents) == 1
+
+    changed = request.model_copy(
+        update={
+            "items": [
+                request.items[0].model_copy(
+                    update={"model_snapshot": None}
+                )
+            ]
+        }
+    )
+    rejected = await subject.register_batch(changed)
+    assert rejected.rejected == 1
+    assert "cuerpo distinto" in rejected.items[0].error
+
+
+@pytest.mark.asyncio
+async def test_evaluation_keeps_generic_evaluation_prompt_reference():
+    repository = FakeRepository()
+    subject = service(repository)
+    await subject.register_batch(batch(payload(prediction_id="abcdefgh")))
+
+    stored = await subject.add_evaluation(
+        "abcdefgh",
+        evaluation(
+            version_id=repository.documents[0]["version_id"],
+            evaluation_prompt_id="football.first_goal_evaluation",
+            evaluation_prompt_version_id=FIRST_GOAL_EVALUATION_PROMPT_VERSION_ID,
+        ),
+    )
+
+    assert stored.evaluation_prompt.prompt_id == (
+        "football.first_goal_evaluation"
+    )
+    assert stored.evaluation_prompt.version_id == (
+        FIRST_GOAL_EVALUATION_PROMPT_VERSION_ID
+    )

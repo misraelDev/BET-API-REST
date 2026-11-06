@@ -4,11 +4,14 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Query, Request, status
+from fastapi import APIRouter, HTTPException, Path, Query, Request, status
 
 from app.prompts.models import (
+    PROMPT_ID_PATTERN,
     Prompt,
     PromptCreate,
+    PromptRevision,
+    PromptRevisionListResponse,
     PromptSport,
     PromptType,
     PromptVersionListResponse,
@@ -30,6 +33,124 @@ router = APIRouter(
 def _service(request: Request) -> PromptService:
     repository: PromptRepository = request.app.state.prompt_repository
     return PromptService(repository)
+
+
+@router.get(
+    "/{prompt_id}",
+    response_model=PromptRevision,
+    summary="Consulta un prompt genérico vigente o una versión exacta",
+    description=(
+        "Identidad genérica para modelos analíticos especializados, por ejemplo "
+        "football.first_goal_model. Sin version ni version_id devuelve la "
+        "versión vigente; usa uno de esos parámetros para recuperar una "
+        "revisión histórica exacta. Las versiones son inmutables. Las rutas "
+        "históricas /{sport}/{prompt_type} siguen disponibles."
+    ),
+    responses={
+        200: {
+            "description": "Prompt y metadatos de su versión.",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "document_id": "665b9c6ab78c014ef4d1ab22",
+                        "prompt_id": "football.first_goal_model",
+                        "sport": "football",
+                        "prompt_type": "first_goal_model",
+                        "version": 2,
+                        "version_id": "9a1c2e3f4b5d6a7c8e9f0a1b2c3d4e5f",
+                        "is_current": True,
+                        "supersedes_version_id": "1f2e3d4c5b6a79880716253443526170",
+                        "prompt": "Estima el primer equipo en anotar con lambdas...",
+                        "author": "ana.garcia",
+                        "change_summary": "Separar la probabilidad de 0-0.",
+                        "created_at": "2026-10-24T20:00:00Z",
+                    }
+                }
+            },
+        },
+        404: {"description": "No existe ese prompt o versión."},
+        422: {"description": "Parámetros incompatibles o inválidos."},
+    },
+)
+async def get_prompt_by_id(
+    request: Request,
+    prompt_id: Annotated[str, Path(pattern=PROMPT_ID_PATTERN)],
+    version: Annotated[int | None, Query(ge=1)] = None,
+    version_id: Annotated[
+        str | None, Query(pattern=VERSION_ID_PATTERN)
+    ] = None,
+) -> PromptRevision:
+    try:
+        return await _service(request).get_by_prompt_id(
+            prompt_id,
+            version=version,
+            version_id=version_id,
+        )
+    except PromptNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@router.get(
+    "/{prompt_id}/versions",
+    response_model=PromptRevisionListResponse,
+    summary="Consulta el historial de un prompt genérico",
+    responses={200: {"description": "Historial ascendente de versiones."}},
+)
+async def list_prompt_versions_by_id(
+    request: Request,
+    prompt_id: Annotated[str, Path(pattern=PROMPT_ID_PATTERN)],
+) -> PromptRevisionListResponse:
+    try:
+        items = await _service(request).history_by_prompt_id(prompt_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    current = next((item.version for item in items if item.is_current), None)
+    return PromptRevisionListResponse(
+        prompt_id=prompt_id,
+        total=len(items),
+        current_version=current,
+        items=items,
+    )
+
+
+@router.post(
+    "/{prompt_id}",
+    response_model=PromptRevision,
+    status_code=status.HTTP_201_CREATED,
+    summary="Publica una nueva versión de un prompt genérico",
+    description=(
+        "Cada publicación crea una versión nueva; no hay edición in-place. "
+        "base_version_id debe coincidir con la versión vigente; usa null solo "
+        "para el primer registro. Este endpoint no tiene autenticación: "
+        "protégelo con controles de acceso del proxy/red antes de habilitar "
+        "escrituras públicas."
+    ),
+    responses={
+        201: {"description": "Nueva versión registrada."},
+        409: {"description": "La versión base está desactualizada o hubo una carrera."},
+        422: {"description": "Prompt, prompt_id o base_version_id inválido."},
+        503: {"description": "Persistencia de prompts no disponible."},
+    },
+)
+async def publish_prompt_by_id(
+    request: Request,
+    payload: PromptCreate,
+    prompt_id: Annotated[str, Path(pattern=PROMPT_ID_PATTERN)],
+) -> PromptRevision:
+    try:
+        return await _service(request).publish_by_prompt_id(prompt_id, payload)
+    except RepositoryConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @router.get(

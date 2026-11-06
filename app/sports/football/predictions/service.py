@@ -11,7 +11,7 @@ from collections import defaultdict
 from datetime import UTC, date, datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any, Protocol
 
-from app.prompts.models import PromptReference, PromptSport, PromptType
+from app.prompts.models import PromptReference, parse_prompt_id
 from app.sports.football.competitions.repository import CompetitionRepository
 from app.sports.football.competitions.service import (
     CompetitionNotFound,
@@ -62,6 +62,7 @@ IDENTITY_FIELDS = (
     "player_id",
     "home_goals",
     "away_goals",
+    "forecast_group_id",
 )
 
 
@@ -203,17 +204,20 @@ class FootballPredictionService:
         received_at = _utc(self._clock())
         if self._prompt_repository is None:
             raise RuntimeError("Repositorio de prompts no configurado.")
+        analysis_prompt_id = payload.analysis_prompt_id or "football.analysis"
+        prompt_sport, prompt_type = parse_prompt_id(analysis_prompt_id)
         prompt_document = await self._prompt_repository.get_version_by_id(
-            PromptSport.FOOTBALL.value,
-            PromptType.ANALYSIS.value,
+            prompt_sport,
+            prompt_type,
             payload.analysis_prompt_version_id,
         )
         if prompt_document is None:
             raise PromptVersionNotFound(
-                "analysis_prompt_version_id no existe para football/analysis."
+                "analysis_prompt_version_id no existe para "
+                f"{analysis_prompt_id}."
             )
         analysis_prompt = PromptReference(
-            prompt_id=prompt_document.get("prompt_id", "football.analysis"),
+            prompt_id=prompt_document.get("prompt_id", analysis_prompt_id),
             version=int(prompt_document["version"]),
             version_id=prompt_document["version_id"],
         )
@@ -365,6 +369,18 @@ class FootballPredictionService:
             raise
         return self._created(stored)
 
+    @staticmethod
+    def _snapshot_document(snapshot: Any) -> dict[str, Any] | None:
+        """Serialize a snapshot keeping BSON-friendly datetimes and URL strings."""
+        if snapshot is None:
+            return None
+        document = snapshot.model_dump(mode="json")
+        if snapshot.generated_at is not None:
+            document["generated_at"] = _utc(snapshot.generated_at)
+        if snapshot.queried_at is not None:
+            document["queried_at"] = _utc(snapshot.queried_at)
+        return document
+
     def _build_document(
         self,
         item: FootballPredictionCreate,
@@ -468,6 +484,8 @@ class FootballPredictionService:
             "settlement_status": SettlementStatus.PENDIENTE.value,
             "settlement": None,
             "notes": item.notes,
+            "forecast_group_id": item.forecast_group_id,
+            "model_snapshot": self._snapshot_document(item.model_snapshot),
             "created_at": received_at,
             "updated_at": received_at,
         }
@@ -536,6 +554,7 @@ class FootballPredictionService:
         settlement_status: SettlementStatus | None = None,
         period: Period | None = None,
         timing: TimingStatus | None = None,
+        forecast_group_id: str | None = None,
         include_versions: bool = False,
         page: int = 1,
         page_size: int = 50,
@@ -575,6 +594,8 @@ class FootballPredictionService:
             query["period"] = period.value
         if timing is not None:
             query["timing.status"] = TimingStatus(timing).value
+        if forecast_group_id:
+            query["forecast_group_id"] = forecast_group_id
 
         total = await self._repository.count_predictions(query)
         documents = await self._repository.find_predictions(
@@ -654,18 +675,23 @@ class FootballPredictionService:
             )
         if self._prompt_repository is None:
             raise RuntimeError("Repositorio de prompts no configurado.")
+        evaluation_prompt_id = (
+            payload.evaluation_prompt_id or "football.evaluation"
+        )
+        prompt_sport, prompt_type = parse_prompt_id(evaluation_prompt_id)
         evaluation_prompt_document = await self._prompt_repository.get_version_by_id(
-            PromptSport.FOOTBALL.value,
-            PromptType.EVALUATION.value,
+            prompt_sport,
+            prompt_type,
             payload.evaluation_prompt_version_id,
         )
         if evaluation_prompt_document is None:
             raise PromptVersionNotFound(
-                "evaluation_prompt_version_id no existe para football/evaluation."
+                "evaluation_prompt_version_id no existe para "
+                f"{evaluation_prompt_id}."
             )
         evaluation_prompt = PromptReference(
             prompt_id=evaluation_prompt_document.get(
-                "prompt_id", "football.evaluation"
+                "prompt_id", evaluation_prompt_id
             ),
             version=int(evaluation_prompt_document["version"]),
             version_id=evaluation_prompt_document["version_id"],

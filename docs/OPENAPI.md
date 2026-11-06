@@ -7,27 +7,30 @@ las rutas.
 | Archivo | Contenido | Rutas | Operaciones |
 | --- | --- | --- | --- |
 | [`system.yaml`](../openapi/system.yaml) | `/health`, `/api/v1/sports`, `/api/v1/records` | 3 | 3 |
-| [`football.yaml`](../openapi/football.yaml) | `/api/v1/football/*` | 6 | 8 |
+| [`football.yaml`](../openapi/football.yaml) | `/api/v1/football/*` | 10 | 15 |
 | [`nba.yaml`](../openapi/nba.yaml) | `/api/v1/nba/*` | 2 | 2 |
 | [`baseball.yaml`](../openapi/baseball.yaml) | `/api/v1/baseball/*` | 5 | 5 |
 | [`tennis.yaml`](../openapi/tennis.yaml) | `/api/v1/tennis/*` | 3 | 3 |
-| [`prompts.yaml`](../openapi/prompts.yaml) | `/api/v1/prompts/*` | 2 | 3 |
+| [`prompts.yaml`](../openapi/prompts.yaml) | `/api/v1/prompts/*` | 4 | 6 |
 
-Total: 21 rutas y 24 operaciones, repartidas entre los seis contratos.
+Total: 27 rutas y 34 operaciones, repartidas entre los seis contratos.
 
 El registro manual (`POST /api/v1/records`) se documenta en `system.yaml` porque
-es transversal a los cuatro deportes. Las seis rutas de pronósticos de fútbol
-(8 operaciones) incluyen petición, respuesta y errores con ejemplos: catálogo,
-lote, listado, detalle y evaluaciones posteriores.
+es transversal a los cuatro deportes. Las diez rutas de fútbol (15 operaciones)
+incluyen petición, respuesta y errores con ejemplos: catálogo, competiciones,
+resultados, lote, listado, detalle y evaluaciones posteriores. El contrato de
+prompts documenta tanto la identidad genérica `prompt_id` como las rutas
+históricas por deporte y tipo.
 
 ## Contenido de cada archivo
 
-- Versión OpenAPI 3.1.0 y versión de API 1.5.0.
+- Versión OpenAPI 3.1.0 y versión de API 1.8.0.
 - Servidores `http://127.0.0.1:8000` y `http://localhost:8000`; si defines
   `PUBLIC_BASE_URL`, se añade como servidor adicional.
 - Solo los `tags` del deporte correspondiente.
-- El contrato de prompts documenta `analysis`/`evaluation`, lectura de vigente,
-  lectura por `version_id`, historial y publicación con compare-and-set.
+- El contrato de prompts documenta la identidad genérica `prompt_id` (vigente,
+  versión exacta, historial y publicación con compare-and-set) y las rutas
+  históricas `analysis`/`evaluation`.
 - Bloque `components` recortado: únicamente los esquemas que esas rutas
   referencian, sin dependencias externas ni esquemas huérfanos.
 - Parámetros de query, cuerpos de petición, respuestas, ejemplos y headers de

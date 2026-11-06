@@ -211,3 +211,127 @@ def test_prompt_api_gets_latest_exact_history_and_publishes_new_revision():
     assert second.status_code == 201
     assert second.json()["version"] == 2
     assert stale.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_generic_prompt_id_versions_are_independent_from_legacy_prompts():
+    repository = FakePromptRepository()
+    service = PromptService(repository)
+
+    analysis = await service.publish(
+        PromptSport.FOOTBALL, PromptType.ANALYSIS, payload()
+    )
+    first = await service.publish_by_prompt_id(
+        "football.first_goal_model", payload(prompt="Modelo de primer gol.")
+    )
+    second = await service.publish_by_prompt_id(
+        "football.first_goal_model",
+        payload(first.version_id, prompt="Modelo de primer gol con 0-0."),
+    )
+
+    latest = await service.get_by_prompt_id("football.first_goal_model")
+    exact = await service.get_by_prompt_id(
+        "football.first_goal_model", version_id=first.version_id
+    )
+    history = await service.history_by_prompt_id("football.first_goal_model")
+
+    assert first.prompt_id == "football.first_goal_model"
+    assert first.prompt_type == "first_goal_model"
+    assert second.version == 2
+    assert second.supersedes_version_id == first.version_id
+    assert latest.version_id == second.version_id
+    assert exact.prompt == "Modelo de primer gol."
+    assert exact.is_current is False
+    assert [item.version for item in history] == [1, 2]
+    assert analysis.prompt_id == "football.analysis"
+    assert len(await service.history_by_prompt_id("football.analysis")) == 1
+
+
+@pytest.mark.asyncio
+async def test_generic_prompt_publication_rejects_stale_base():
+    repository = FakePromptRepository()
+    service = PromptService(repository)
+    first = await service.publish_by_prompt_id(
+        "football.first_goal_model", payload()
+    )
+
+    with pytest.raises(RepositoryConflict, match="no coincide"):
+        await service.publish_by_prompt_id(
+            "football.first_goal_model", payload(None)
+        )
+
+    assert (
+        await service.get_by_prompt_id("football.first_goal_model")
+    ).version_id == first.version_id
+
+
+def test_generic_prompt_api_gets_latest_exact_history_and_publishes():
+    repository = FakePromptRepository()
+    app = FastAPI()
+    app.include_router(router)
+    app.state.prompt_repository = repository
+    client = TestClient(app)
+    path = "/api/v1/prompts/football.first_goal_model"
+
+    first = client.post(
+        path,
+        json={
+            "base_version_id": None,
+            "prompt": "Modelo inicial de primer gol.",
+            "author": "ana",
+            "change_summary": "Primera publicación.",
+        },
+    )
+    assert first.status_code == 201
+    first_data = first.json()
+    assert first_data["prompt_id"] == "football.first_goal_model"
+    assert first_data["prompt_type"] == "first_goal_model"
+
+    current = client.get(path)
+    exact = client.get(
+        path, params={"version_id": first_data["version_id"]}
+    )
+    history = client.get(f"{path}/versions")
+    second = client.post(
+        path,
+        json={
+            "base_version_id": first_data["version_id"],
+            "prompt": "Modelo mejorado de primer gol.",
+            "author": "ana",
+            "change_summary": "Agregar escenario 0-0.",
+        },
+    )
+    stale = client.post(
+        path,
+        json={
+            "base_version_id": first_data["version_id"],
+            "prompt": "Revisión obsoleta.",
+            "author": "otra",
+            "change_summary": "Debe entrar en conflicto.",
+        },
+    )
+
+    assert current.status_code == 200
+    assert current.json()["version"] == 1
+    assert exact.json()["prompt"] == "Modelo inicial de primer gol."
+    assert history.status_code == 200
+    assert history.json()["prompt_id"] == "football.first_goal_model"
+    assert history.json()["total"] == 1
+    assert second.status_code == 201
+    assert second.json()["version"] == 2
+    assert stale.status_code == 409
+
+    legacy = client.get("/api/v1/prompts/football/analysis")
+    assert legacy.status_code == 404
+
+
+def test_generic_prompt_api_rejects_invalid_prompt_id():
+    repository = FakePromptRepository()
+    app = FastAPI()
+    app.include_router(router)
+    app.state.prompt_repository = repository
+    client = TestClient(app)
+
+    response = client.get("/api/v1/prompts/football")
+
+    assert response.status_code == 422

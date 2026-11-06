@@ -7,7 +7,7 @@ cd C:\Users\Misrael\Documents\WEBS\BET\BET-API-REST
 .\.venv\Scripts\python.exe -m pytest -q
 ```
 
-La suite actual tiene **199 pruebas**.
+La suite actual tiene **253 pruebas**.
 
 ## Ejecutar un archivo concreto
 
@@ -29,11 +29,11 @@ La suite actual tiene **199 pruebas**.
 | `test_football_fusion.py` | Fusión ponderada de fútbol. |
 | `test_football_market_stats.py` | Estadísticas de mercado de fútbol. |
 | `test_football_observations.py` | Resumen de ESPN → `FootballObservation` (participantes, segunda amarilla, plantillas, tiempos extra). |
-| `test_football_predictions_models.py` | Esquema del lote, validación mercado × periodo y líneas. |
-| `test_football_predictions_router.py` | Contrato HTTP: 201/200/409/422/503, listado, detalle y evaluaciones. |
-| `test_football_predictions_service.py` | Versionado, idempotencia, filtros, evaluaciones y liquidación por fecha. |
+| `test_football_predictions_models.py` | Esquema del lote, validación mercado × periodo y líneas, grupos de `first_team_to_score` y `prompt_id` genérico. |
+| `test_football_predictions_router.py` | Contrato HTTP: 201/200/409/422/503, listado, detalle, grupos de primer gol y evaluaciones. |
+| `test_football_predictions_service.py` | Versionado, idempotencia, filtros, referencias exactas de prompt, instantáneas del modelo, grupos y liquidación por fecha. |
 | `test_football_predictions_repository.py` | Índices únicos, compare-and-set de versiones y recuperación ante colisiones. |
-| `test_prompts.py` | Publicación de versiones, consulta exacta/vigente, conflicto de base y rutas HTTP. |
+| `test_prompts.py` | Publicación de versiones, consulta exacta/vigente, conflicto de base, identidad genérica y rutas HTTP. |
 | `test_prompts_repository.py` | Índices y compare-and-set para historial de prompts. |
 | `test_records.py` | Persistencia y validación de referencias de prompt en picks manuales. |
 | `test_football_settlement.py` | Motor de liquidación por mercado y periodo, incluida la segunda amarilla y el alargue. |

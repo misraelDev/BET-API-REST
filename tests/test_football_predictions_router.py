@@ -10,6 +10,7 @@ from app.sports.football.competitions.service import CompetitionService
 from test_football_predictions_service import (
     ANALYSIS_PROMPT_VERSION_ID,
     EVALUATION_PROMPT_VERSION_ID,
+    FIRST_GOAL_PROMPT_VERSION_ID,
     FakeObservationProvider,
     FakeRepository,
     observation,
@@ -424,6 +425,110 @@ def test_service_unavailable_returns_503():
     response = client.get(PREDICTION_PATH)
 
     assert response.status_code == 503
+
+
+def test_post_first_goal_group_with_generic_prompt_and_snapshot():
+    client, repository = make_client()
+    group = "grp-first-goal-736644"
+    snapshot = {
+        "model_name": "first_goal",
+        "model_version": "first_goal_v2",
+        "lambdas": {"home": 1.42, "away": 0.87},
+        "probabilities": {"home": 52.0, "away": 31.0, "none": 17.0},
+        "missing_data": ["lineups"],
+    }
+    response = client.post(
+        PREDICTION_PATH,
+        json={
+            "analysis_prompt_id": "football.first_goal_model",
+            "analysis_prompt_version_id": FIRST_GOAL_PROMPT_VERSION_ID,
+            "items": [
+                body(
+                    idempotency_key="http-first-goal-home",
+                    market="first_team_to_score",
+                    selection="home",
+                    probability=52.0,
+                    forecast_group_id=group,
+                    method_version="first_goal_v2",
+                    model_snapshot=snapshot,
+                ),
+                body(
+                    idempotency_key="http-first-goal-away",
+                    market="first_team_to_score",
+                    selection="away",
+                    probability=31.0,
+                    forecast_group_id=group,
+                    method_version="first_goal_v2",
+                ),
+                body(
+                    idempotency_key="http-first-goal-none",
+                    market="first_team_to_score",
+                    selection="none",
+                    probability=17.0,
+                    forecast_group_id=group,
+                    method_version="first_goal_v2",
+                ),
+            ],
+        },
+    )
+
+    assert response.status_code == 201
+    data = response.json()
+    assert data["created"] == 3
+    assert {
+        item["record"]["forecast_group_id"] for item in data["items"]
+    } == {group}
+    assert data["items"][0]["record"]["analysis_prompt"]["prompt_id"] == (
+        "football.first_goal_model"
+    )
+    assert data["items"][0]["record"]["method_version"] == "first_goal_v2"
+    assert data["items"][0]["record"]["model_snapshot"]["lambdas"] == {
+        "home": 1.42,
+        "away": 0.87,
+    }
+
+    listed = client.get(
+        PREDICTION_PATH, params={"forecast_group_id": group}
+    )
+    assert listed.status_code == 200
+    assert listed.json()["total"] == 3
+
+
+def test_post_first_goal_group_with_wrong_sum_is_422():
+    client, _ = make_client()
+
+    response = client.post(
+        PREDICTION_PATH,
+        json={
+            "analysis_prompt_id": "football.first_goal_model",
+            "analysis_prompt_version_id": FIRST_GOAL_PROMPT_VERSION_ID,
+            "items": [
+                body(
+                    idempotency_key="http-first-goal-home",
+                    market="first_team_to_score",
+                    selection="home",
+                    probability=52.0,
+                    forecast_group_id="grp-first-goal-736644",
+                ),
+                body(
+                    idempotency_key="http-first-goal-away",
+                    market="first_team_to_score",
+                    selection="away",
+                    probability=31.0,
+                    forecast_group_id="grp-first-goal-736644",
+                ),
+                body(
+                    idempotency_key="http-first-goal-none",
+                    market="first_team_to_score",
+                    selection="none",
+                    probability=10.0,
+                    forecast_group_id="grp-first-goal-736644",
+                ),
+            ],
+        },
+    )
+
+    assert response.status_code == 422
 
 
 def test_settlement_status_filter_and_settle_flow():

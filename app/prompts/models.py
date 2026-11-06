@@ -23,11 +23,28 @@ class PromptType(StrEnum):
 
 
 VERSION_ID_PATTERN = r"^[A-Fa-f0-9]{32}$"
+PROMPT_ID_PATTERN = r"^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$"
 
 
 def make_prompt_id(sport: str, prompt_type: str) -> str:
     """Stable logical identity shared by all immutable prompt revisions."""
     return f"{sport}.{prompt_type}"
+
+
+def parse_prompt_id(prompt_id: str) -> tuple[str, str]:
+    """Split a generic ``prompt_id`` into its sport and prompt type.
+
+    ``football.first_goal_model`` -> ``("football", "first_goal_model")``.
+    The prompt type may contain dots so new analytical models can be added
+    without changing the API code.
+    """
+    if not re.fullmatch(PROMPT_ID_PATTERN, prompt_id):
+        raise ValueError(
+            "prompt_id debe tener el formato <sport>.<nombre>, por ejemplo "
+            "football.first_goal_model."
+        )
+    sport, _, prompt_type = prompt_id.partition(".")
+    return sport, prompt_type
 
 
 class PromptReference(BaseModel):
@@ -73,15 +90,26 @@ class PromptCreate(BaseModel):
         return value
 
 
-class Prompt(BaseModel):
-    """Stored immutable prompt revision returned by the prompt API."""
+class PromptRevision(BaseModel):
+    """Stored immutable prompt revision with a generic ``prompt_id``.
+
+    This is the contract for the generic registry. The legacy ``Prompt`` model
+    below narrows ``sport`` and ``prompt_type`` to their historical enums while
+    keeping exactly the same stored shape.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
     document_id: str
-    prompt_id: str
-    sport: PromptSport
-    prompt_type: PromptType
+    prompt_id: str = Field(
+        pattern=PROMPT_ID_PATTERN,
+        description=(
+            "Identidad lógica estable del prompt, por ejemplo "
+            "football.first_goal_model."
+        ),
+    )
+    sport: str = Field(min_length=1, max_length=64)
+    prompt_type: str = Field(min_length=1, max_length=120)
     version: int = Field(ge=1)
     version_id: str = Field(pattern=VERSION_ID_PATTERN)
     is_current: bool
@@ -125,9 +153,25 @@ class Prompt(BaseModel):
         return self
 
 
+class Prompt(PromptRevision):
+    """Legacy prompt revision scoped to ``analysis``/``evaluation``."""
+
+    sport: PromptSport
+    prompt_type: PromptType
+
+
 class PromptVersionListResponse(BaseModel):
     sport: PromptSport
     prompt_type: PromptType
     total: int = Field(ge=0)
     current_version: int | None = None
     items: list[Prompt]
+
+
+class PromptRevisionListResponse(BaseModel):
+    """History for a generic prompt identity."""
+
+    prompt_id: str = Field(pattern=PROMPT_ID_PATTERN)
+    total: int = Field(ge=0)
+    current_version: int | None = None
+    items: list[PromptRevision]

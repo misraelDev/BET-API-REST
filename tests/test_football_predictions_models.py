@@ -237,3 +237,99 @@ def test_batch_rejects_duplicate_prediction_ids():
 def test_unknown_market_is_rejected():
     with pytest.raises(ValidationError):
         FootballPredictionCreate(**payload(market="assists"))
+
+
+def _first_goal_item(selection, probability, **overrides):
+    return FootballPredictionCreate(
+        **payload(
+            market="first_team_to_score",
+            selection=selection,
+            probability=probability,
+            forecast_group_id="grp-first-goal-736644",
+            **overrides,
+        )
+    )
+
+
+def test_first_team_to_score_group_accepts_three_probabilities_summing_100():
+    batch = FootballPredictionBatchRequest(
+        analysis_prompt_id="football.first_goal_model",
+        analysis_prompt_version_id="a" * 32,
+        items=[
+            _first_goal_item("home", 52.0),
+            _first_goal_item(
+                "away", 31.0, idempotency_key="test-key-0002"
+            ),
+            _first_goal_item(
+                "none", 17.0, idempotency_key="test-key-0003"
+            ),
+        ],
+    )
+
+    assert batch.analysis_prompt_id == "football.first_goal_model"
+    assert len(batch.items) == 3
+    assert sum(item.probability for item in batch.items) == 100.0
+
+
+def test_first_team_to_score_group_must_sum_100():
+    with pytest.raises(ValidationError, match="sumar 100"):
+        FootballPredictionBatchRequest(
+            analysis_prompt_version_id="a" * 32,
+            items=[
+                _first_goal_item("home", 52.0),
+                _first_goal_item(
+                    "away", 31.0, idempotency_key="test-key-0002"
+                ),
+                _first_goal_item(
+                    "none", 10.0, idempotency_key="test-key-0003"
+                ),
+            ],
+        )
+
+
+def test_first_team_to_score_group_requires_home_away_and_none():
+    with pytest.raises(ValidationError, match="home, away y none"):
+        FootballPredictionBatchRequest(
+            analysis_prompt_version_id="a" * 32,
+            items=[
+                _first_goal_item("home", 52.0),
+                _first_goal_item(
+                    "away", 48.0, idempotency_key="test-key-0002"
+                ),
+            ],
+        )
+
+
+def test_first_team_to_score_group_rejects_mixed_events():
+    with pytest.raises(ValidationError, match="mezclar partidos"):
+        FootballPredictionBatchRequest(
+            analysis_prompt_version_id="a" * 32,
+            items=[
+                _first_goal_item("home", 52.0),
+                _first_goal_item(
+                    "away",
+                    31.0,
+                    idempotency_key="test-key-0002",
+                    event_id=999,
+                ),
+                _first_goal_item(
+                    "none", 17.0, idempotency_key="test-key-0003"
+                ),
+            ],
+        )
+
+
+def test_forecast_group_id_only_applies_to_first_team_to_score():
+    with pytest.raises(ValidationError, match="solo aplica"):
+        FootballPredictionCreate(
+            **payload(forecast_group_id="grp-first-goal-736644")
+        )
+
+
+def test_generic_prompt_id_requires_sport_and_name():
+    with pytest.raises(ValidationError):
+        FootballPredictionBatchRequest(
+            analysis_prompt_id="football",
+            analysis_prompt_version_id="a" * 32,
+            items=[FootballPredictionCreate(**payload())],
+        )

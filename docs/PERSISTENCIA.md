@@ -65,6 +65,8 @@ busca entre el historial aunque la versión actual haya llegado tarde.
 | `probability`, `confidence` | Probabilidad 0–100 y confianza 1–5. |
 | `rationale`, `sources` | Justificación y fuentes. |
 | `analyst`, `method_version` | Autor y método. |
+| `forecast_group_id` | Grupo opcional de `first_team_to_score` (`home`/`away`/`none`). |
+| `model_snapshot` | Instantánea opcional de entradas y salidas del modelo. |
 | `generated_at` | Hora declarada por el analista, en UTC. |
 | `received_at` | Hora del servidor, en UTC. Es la referencia de `timing`. |
 | `timing` | `status` (`pre_match`, `late`, `unverified`) y `received_before_kickoff`. |
@@ -88,6 +90,13 @@ cuando se escribe la liquidación.
 | `prediction_market` | `market` + `is_current` | No |
 | `prediction_settlement_status` | `settlement_status` | No |
 | `prediction_timing` | `timing.status` | No |
+| `prediction_forecast_group` | `forecast_group_id` + `is_current` | No |
+
+`model_snapshot` se guarda como subdocumento con las fechas `generated_at` y
+`queried_at` en UTC y las URLs como texto. Es opcional: los documentos
+anteriores permanecen sin él. `forecast_group_id` forma parte de la identidad de
+la selección, de modo que una nueva versión conserva la agrupación de las tres
+probabilidades de `first_team_to_score`.
 
 La idempotencia tiene alcance global en `football_predictions`: la clave única
 reserva el reintento sin importar lote o analista. El índice compuesto por
@@ -148,9 +157,12 @@ del pronóstico.
 ## Prompts versionados
 
 La colección independiente `prompts` (configurable con
-`MONGODB_PROMPTS_COLLECTION`) almacena una secuencia por `(sport, prompt_type)`.
-Los tipos son `analysis` y `evaluation`; los deportes aceptados son `football`,
-`nba`, `baseball` y `tennis`.
+`MONGODB_PROMPTS_COLLECTION`) almacena una secuencia por `prompt_id`
+(`<sport>.<nombre>`), por ejemplo `football.analysis`,
+`football.evaluation` o `football.first_goal_model`. Para reutilizar los índices
+existentes, cada documento deriva además `sport` y `prompt_type` del
+`prompt_id`. Las rutas históricas `analysis`/`evaluation` siguen usando el mismo
+almacenamiento.
 
 Cada publicación crea un documento inmutable con `version`, `version_id`, texto,
 autor, resumen de cambios y referencia `supersedes_version_id`. No existe
@@ -158,18 +170,21 @@ actualización destructiva. Índices únicos impiden versiones duplicadas y más
 una revisión vigente. `base_version_id` es un compare-and-set: publicaciones
 basadas en una revisión obsoleta reciben `409`.
 
-Las rutas `GET /api/v1/prompts/{sport}/{prompt_type}` y
-`GET /api/v1/prompts/{sport}/{prompt_type}/versions` consultan la vigente y el
-historial. El `POST` al recurso crea la primera versión o publica la siguiente.
-La primera publicación debe enviar `base_version_id: null`; las siguientes,
-el `version_id` vigente exacto.
+Las rutas `GET /api/v1/prompts/{prompt_id}` y
+`GET /api/v1/prompts/{prompt_id}/versions` consultan la vigente y el historial.
+El `POST` al recurso crea la primera versión o publica la siguiente. La primera
+publicación debe enviar `base_version_id: null`; las siguientes, el `version_id`
+vigente exacto. Las rutas
+`GET /api/v1/prompts/{sport}/{prompt_type}` y
+`GET /api/v1/prompts/{sport}/{prompt_type}/versions` se conservan por
+compatibilidad.
 
 Los pronósticos y registros manuales nuevos guardan una referencia
 `analysis_prompt` (`prompt_id`, `version`, `version_id`); las evaluaciones nuevas
 guardan `evaluation_prompt` con la misma forma. La API exige el identificador
-exacto y verifica que pertenezca al deporte y tipo correctos antes de insertar.
-La referencia se copia al documento de registro y no apunta a “la versión
-actual”, por lo que futuras publicaciones no cambian ese vínculo. Los documentos
+exacto y verifica que pertenezca al `prompt_id` indicado antes de insertar. La
+referencia se copia al documento de registro y no apunta a “la versión actual”,
+por lo que futuras publicaciones no cambian ese vínculo. Los documentos
 anteriores sin evidencia permanecen sin referencia. `method_version` y
 `model_version` se conservan como metadatos separados.
 
@@ -190,7 +205,7 @@ Los endpoints `/{sport}/results` leen directamente de MongoDB:
 
 Los pronósticos versionados se consultan con
 `GET /api/v1/football/predictions` (filtros por jornada, rango, recepción, liga,
-evento, analista, mercado, estado, periodo y timing).
+evento, analista, mercado, estado, periodo, timing y `forecast_group_id`).
 
 Filtros disponibles: fecha, liga o circuito, hora de inicio, mercado y
 probabilidad mínima.

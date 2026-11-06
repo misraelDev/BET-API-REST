@@ -6,8 +6,8 @@ Base URL local: `http://127.0.0.1:8000`. Todos los cuerpos y respuestas usan
 La API **no genera predicciones**. El registro es manual y se hace con
 `POST /api/v1/records` (un pick simple) o, en fútbol, con
 `POST /api/v1/football/predictions` (lote versionado de selecciones). Además,
-`/api/v1/prompts` administra prompts versionados de análisis y evaluación para
-los cuatro deportes.
+`/api/v1/prompts` administra prompts versionados con identidad genérica
+(`prompt_id`) para los cuatro deportes y modelos analíticos especializados.
 
 ## Sistema
 
@@ -93,10 +93,10 @@ con `event_id`, `stage` y `message`.
 | Método | Ruta | Parámetros | Cuerpo |
 | --- | --- | --- | --- |
 | GET | `/api/v1/football/predictions/markets` | — | — |
-| POST | `/api/v1/football/predictions` | — | `{ "items": [ ... ] }` (1–100 selecciones) |
+| POST | `/api/v1/football/predictions` | — | `analysis_prompt_id`, `analysis_prompt_version_id` e `items` (1–100 selecciones) |
 | GET | `/api/v1/football/predictions` | ver tabla de filtros | — |
 | GET | `/api/v1/football/predictions/{prediction_id}` | — | — |
-| POST | `/api/v1/football/predictions/{prediction_id}/evaluations` | — | `version_id`, `analyst`, `diagnosis`, `learnings`, `sources`; opcionales `outcome_comment`, `tags` |
+| POST | `/api/v1/football/predictions/{prediction_id}/evaluations` | — | `version_id`, `evaluation_prompt_id`, `evaluation_prompt_version_id`, `analyst`, `diagnosis`, `learnings`, `sources`; opcionales `outcome_comment`, `tags` |
 | GET | `/api/v1/football/predictions/{prediction_id}/evaluations` | `page`, `page_size` | — |
 
 Filtros de `GET /api/v1/football/predictions`:
@@ -113,12 +113,20 @@ Filtros de `GET /api/v1/football/predictions`:
 | `settlement_status` | enum | `pendiente`, `acertado`, `fallado`, `reembolso`, `anulado`, `no_evaluable`. |
 | `period` | enum | `full_time`, `first_half`, `second_half`. |
 | `timing` | enum | `pre_match`, `late`, `unverified`. |
+| `forecast_group_id` | texto | Grupo de `first_team_to_score` (`home`/`away`/`none`). |
 | `include_versions` | booleano | Por defecto solo la versión vigente. |
 | `page` | entero ≥ 1 | Página. |
 | `page_size` | entero 1–200 | Por defecto 50. |
 
 La lista devuelve `items`, `page`, `page_size` y `total`. El detalle devuelve
 `prediction_id`, `total_versions`, `current_version` y `versions`.
+
+En `first_team_to_score`, `forecast_group_id` agrupa las tres selecciones
+`home`, `away` y `none`; deben enviarse juntas, con el mismo `event_id` y
+`period`, y sumar `100%`. La API solo valida y almacena; no calcula ni ordena.
+Cada pronóstico puede incluir además `model_snapshot` con las entradas y salidas
+del modelo (lambdas, probabilidades, intervalos, contribuciones, cuotas,
+fuentes, hora de consulta y datos ausentes).
 
 Códigos de `POST /predictions`: `201` si se creó al menos una versión, `200` si
 todo fueron reintentos idempotentes y `409` si todo se rechazó. Los detalles del
@@ -160,25 +168,33 @@ Circuitos: `atp`, `wta`, `all`.
 
 | Método | Ruta | Parámetros/cuerpo | Descripción |
 | --- | --- | --- | --- |
-| GET | `/api/v1/prompts/{sport}/{prompt_type}` | Query opcional `version` o `version_id` | Vigente por defecto o revisión exacta. |
-| GET | `/api/v1/prompts/{sport}/{prompt_type}/versions` | — | Historial inmutable, ascendente. |
-| POST | `/api/v1/prompts/{sport}/{prompt_type}` | `base_version_id`, `prompt`, `author`, `change_summary` | Publica una nueva versión; no sobrescribe. |
+| GET | `/api/v1/prompts/{prompt_id}` | Query opcional `version` o `version_id` | Vigente por defecto o revisión exacta de una identidad genérica. |
+| GET | `/api/v1/prompts/{prompt_id}/versions` | — | Historial inmutable, ascendente. |
+| POST | `/api/v1/prompts/{prompt_id}` | `base_version_id`, `prompt`, `author`, `change_summary` | Publica una nueva versión; no sobrescribe. |
+| GET | `/api/v1/prompts/{sport}/{prompt_type}` | Query opcional `version` o `version_id` | Ruta histórica: vigente o revisión exacta. |
+| GET | `/api/v1/prompts/{sport}/{prompt_type}/versions` | — | Ruta histórica: historial inmutable. |
+| POST | `/api/v1/prompts/{sport}/{prompt_type}` | `base_version_id`, `prompt`, `author`, `change_summary` | Ruta histórica: publica una nueva versión. |
 
-`sport`: `football`, `nba`, `baseball` o `tennis`. `prompt_type`: `analysis` o
-`evaluation`. Para la primera publicación, `base_version_id` debe ser `null`;
-para una mejora, usa el `version_id` actualmente vigente. Una base obsoleta
-responde `409`. El endpoint no tiene autenticación: restríngele el acceso de
-escritura desde la red o el proxy.
+`prompt_id` usa el formato `<sport>.<nombre>`, por ejemplo `football.analysis`,
+`football.evaluation` o `football.first_goal_model`. Las rutas genéricas y las
+históricas comparten el mismo almacenamiento; `sport`: `football`, `nba`,
+`baseball` o `tennis`; `prompt_type` histórico: `analysis` o `evaluation`. Para
+la primera publicación, `base_version_id` debe ser `null`; para una mejora, usa
+el `version_id` actualmente vigente. Una base obsoleta responde `409`. El
+endpoint no tiene autenticación: restríngele el acceso de escritura desde la red
+o el proxy.
 
 Más detalle: [API de prompts para analistas](PROMPTS_API.md).
 
 Los pronósticos versionados de fútbol reciben en el cuerpo del lote
-`analysis_prompt_version_id`; todas las selecciones del lote quedan vinculadas
-a esa misma revisión. Cada evaluación debe incluir
+`analysis_prompt_id` (opcional, por defecto `football.analysis`) y
+`analysis_prompt_version_id`; todas las selecciones del lote quedan vinculadas a
+esa misma revisión exacta. Cada evaluación debe incluir
+`evaluation_prompt_id` (opcional, por defecto `football.evaluation`) y
 `evaluation_prompt_version_id`. Ambas referencias deben identificar una versión
-existente del deporte/tipo correspondiente; respuestas de lectura incluyen el
-objeto guardado `analysis_prompt` o `evaluation_prompt` con `prompt_id`,
-`version` y `version_id`. `method_version` permanece independiente.
+existente de la identidad indicada; respuestas de lectura incluyen el objeto
+guardado `analysis_prompt` o `evaluation_prompt` con `prompt_id`, `version` y
+`version_id`. `method_version` permanece independiente.
 
 ## Parámetros comunes
 

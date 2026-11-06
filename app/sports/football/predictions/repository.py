@@ -41,6 +41,11 @@ def prepare_document(document: dict[str, Any]) -> dict[str, Any]:
         source = settlement.get("source")
         if isinstance(source, dict) and source.get("retrieved_at"):
             source["retrieved_at"] = ensure_utc(source["retrieved_at"])
+    snapshot = result.get("model_snapshot")
+    if isinstance(snapshot, dict):
+        for key in ("generated_at", "queried_at"):
+            if snapshot.get(key) is not None:
+                snapshot[key] = ensure_utc(snapshot[key])
     return result
 
 
@@ -170,6 +175,10 @@ class FootballPredictionRepository:
         await self._predictions.create_index(
             [("timing.status", ASCENDING)],
             name="prediction_timing",
+        )
+        await self._predictions.create_index(
+            [("forecast_group_id", ASCENDING), ("is_current", ASCENDING)],
+            name="prediction_forecast_group",
         )
         await self._evaluations.create_index(
             [
