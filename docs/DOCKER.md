@@ -7,8 +7,10 @@ cd C:\Users\Misrael\Documents\WEBS\BET\BET-API-REST
 docker build -t bet-api-rest .
 ```
 
-La imagen parte de `python:3.13-slim`, instala `requirements.txt` y ejecuta la
-aplicación con un usuario sin privilegios.
+La imagen parte de `mirror.gcr.io/library/python:3.13-slim`, instala
+`requirements.txt` y ejecuta la aplicación con un usuario sin privilegios. Se
+usa el mirror de Docker Hub para evitar fallos de resolución IPv6 del host al
+construir.
 
 ## Ejecutar con las variables del archivo `.env`
 
